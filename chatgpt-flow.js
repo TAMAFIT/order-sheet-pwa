@@ -1,3 +1,5 @@
+import './force-update.js';
+
 const AWAITING_KEY = 'order-sheet-awaiting-chatgpt';
 const ACTION_AWAITING_KEY = 'order-sheet-action-awaiting-v1';
 const LAST_IMPORTED_KEY = 'order-sheet-last-imported-clipboard';
