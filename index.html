@@ -9,6 +9,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./chatgpt-flow.css">
 </head>
 <body>
   <main class="app-shell">
@@ -57,36 +58,67 @@
 
       <section class="card">
         <span class="eyebrow">STEP 2</span>
-        <h2>読み取る</h2>
-        <p class="card-sub">プロトタイプでは3通り。無料ChatGPTモードならAPIキー不要です。</p>
-        <div class="mode-grid">
-          <article class="mode-card">
-            <h3>無料ChatGPTモード</h3>
-            <p>画像と専用プロンプトをChatGPTへ共有し、返ってきたJSONを下に貼り付けます。API料金なし。</p>
-            <div class="button-row">
-              <button id="chatgptShareBtn" class="primary-btn">ChatGPTへ共有</button>
-              <button id="copyPromptBtn" class="secondary-btn">プロンプトだけコピー</button>
+        <h2>ChatGPTで読み取る</h2>
+        <p class="card-sub">無料ChatGPTを使う場合は、下の3ステップだけです。PWAは閉じず、ChatGPTから戻ると結果の自動取り込みを試します。</p>
+
+        <div class="guided-flow">
+          <article class="flow-step">
+            <div class="flow-step-number">1</div>
+            <div>
+              <h3>画像と指示をChatGPTへ送る</h3>
+              <p>ボタンを押すとAndroidの共有画面が開きます。共有先でChatGPTをタップしてください。画像と専用指示文を一緒に渡します。</p>
+            </div>
+            <div class="flow-action">
+              <button id="chatgptShareBtn" class="primary-btn flow-primary">ChatGPTへ送る</button>
             </div>
           </article>
-          <article class="mode-card">
-            <h3>バックエンド自動モード</h3>
-            <p>安全なGAS / Cloudflare / Cloud Run等を後から接続すると、撮影→AI解析までワンタップ化できます。</p>
-            <button id="backendAnalyzeBtn" class="secondary-btn">バックエンドで自動解析</button>
+
+          <article class="flow-step">
+            <div class="flow-step-number">2</div>
+            <div>
+              <h3>ChatGPTで送信 → 回答をコピー</h3>
+              <p>ChatGPT側ではそのまま送信してください。解析が終わったら、回答の「コピー」を1回押します。</p>
+              <p class="mini-note">回答は商品名・数量のJSONだけになるよう、アプリ側で専用プロンプトを作っています。</p>
+            </div>
           </article>
-          <article class="mode-card">
-            <h3>デモ</h3>
-            <p>AIなしで商品統合・学習・売り場分類の動作をすぐ確認できます。</p>
+
+          <article id="returnFlowCard" class="flow-step return-card" data-state="idle">
+            <div class="flow-step-number">3</div>
+            <div>
+              <h3>このPWAへ戻る</h3>
+              <p>戻ってきた時に、コピー済みのChatGPT回答を自動で読み込めるか試します。ブラウザ側で自動取得が止められた場合だけ、下のボタンを1回押してください。</p>
+              <div id="chatgptFlowStatus" class="return-status" data-state="idle">まだChatGPTへ送っていません</div>
+            </div>
+            <div class="flow-action">
+              <button id="importClipboardBtn" class="primary-btn">コピーした結果を取り込む</button>
+            </div>
+          </article>
+        </div>
+
+        <div class="automatic-card">
+          <h3>完全自動モード</h3>
+          <p>安全なAIバックエンドを接続すると、ChatGPTアプリへの往復自体をなくして「撮影 → 解析 → 集計」までPWA内だけで完結できます。</p>
+          <button id="backendAnalyzeBtn" class="secondary-btn">バックエンドで自動解析</button>
+        </div>
+
+        <details class="fallback-panel">
+          <summary>うまく取り込めない場合 / 手動入力</summary>
+          <div class="field">
+            <label for="analysisJson">ChatGPTの回答</label>
+            <textarea id="analysisJson" spellcheck="false" placeholder='ChatGPTのJSON回答をここへ貼り付け'></textarea>
+          </div>
+          <div class="compact-tools">
+            <button id="manualPasteFocusBtn" class="secondary-btn">貼り付け欄を開く</button>
+            <button id="parseResultBtn" class="primary-btn">この内容を集計</button>
+          </div>
+          <div class="compact-tools">
+            <button id="copyPromptBtn" class="secondary-btn">プロンプトだけコピー</button>
             <button id="sampleBtn" class="secondary-btn">サンプルで試す</button>
-          </article>
-        </div>
-        <div class="field">
-          <label for="analysisJson">ChatGPTのJSON結果</label>
-          <textarea id="analysisJson" spellcheck="false" placeholder='{"items":[{"name":"らくれん","quantity":2,"confidence":0.95,"cancelled":false}]}'></textarea>
-        </div>
-        <button id="parseResultBtn" class="primary-btn">JSONを読み込んで集計</button>
-        <details>
-          <summary class="text-button">使用する解析プロンプトを見る</summary>
-          <div class="field"><textarea id="promptPreview" readonly></textarea></div>
+          </div>
+          <details>
+            <summary class="text-button">使用する解析プロンプトを見る</summary>
+            <div class="field"><textarea id="promptPreview" readonly></textarea></div>
+          </details>
         </details>
       </section>
 
@@ -176,5 +208,6 @@
   </main>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script type="module" src="./app.js"></script>
+  <script type="module" src="./chatgpt-flow.js"></script>
 </body>
 </html>
