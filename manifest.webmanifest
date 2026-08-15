@@ -1,7 +1,7 @@
 {
-  "name": "手書き注文 集計アシスタント",
-  "short_name": "注文集計",
-  "description": "手書き注文票を商品別に集計し、表記揺れと売り場情報を学習するPWA",
+  "name": "手書き注文 集計アシスタント（実証凍結版）",
+  "short_name": "注文集計・凍結版",
+  "description": "2026-08-15に開発凍結した手書き注文票AI集計の実証PWA。資料・再利用検討用として公開。",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
