@@ -1,0 +1,42 @@
+name: AEON Ayagawa Catalog Harvest
+
+on:
+  push:
+    branches: [data/aeon-ayagawa-catalog]
+    paths:
+      - 'tools/aeon-catalog/**'
+      - '.github/workflows/aeon-ayagawa-catalog.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Syntax check
+        run: node --check tools/aeon-catalog/harvest.mjs
+
+      - name: Harvest public AEON Ayagawa catalog
+        env:
+          AEON_REQUEST_DELAY_MS: '850'
+          AEON_MAX_REQUESTS: '650'
+        run: node tools/aeon-catalog/harvest.mjs
+
+      - name: Upload catalog artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aeon-ayagawa-catalog
+          path: data/aeon-ayagawa/
+          if-no-files-found: warn
