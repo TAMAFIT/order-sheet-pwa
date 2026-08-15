@@ -1,40 +1,39 @@
 # Custom GPT Action return path
 
-This project keeps the existing ChatGPT clipboard flow as a fallback and adds an optional result-return path:
+The PWA already works with the existing clipboard fallback. This optional setup removes the normal copy/paste return step:
 
-`PWA -> ChatGPT/Custom GPT -> submitScanResult Action -> Result API/DB -> PWA`
+`PWA -> Custom GPT -> submitScanResult -> Cloudflare Worker/KV -> PWA`
 
-## What is already implemented in the PWA
+## PWA side already implemented
 
-- A new UUID `scan_id` is issued when a new image selection/capture is made.
-- The `scan_id` and Action instructions are rendered into the top of the bundled share image.
-- The PWA stores the active scan locally and, when it returns to the foreground, polls `GET /scan/{scan_id}` for a short period.
-- A completed payload is written into the existing JSON import path, so the current paper-order review, product candidate, correction learning and final product-ID aggregation code is reused unchanged.
-- If the Action/API path is unavailable, the existing ChatGPT JSON-copy/clipboard import remains usable.
+- generates a UUID `scan_id` for each new capture/selection
+- renders `scan_id` and Action instructions into the bundled share image
+- remembers the active scan locally
+- when the PWA returns to foreground, polls `GET /scan/{scan_id}` for a short period
+- imports a completed payload into the existing paper-order review / candidate / correction-learning / product-ID aggregation flow
+- keeps JSON-copy / clipboard import as a fallback
 
-## Important mobile limitation
+## Recommended backend: one-click Cloudflare Worker + KV
 
-ChatGPT mobile supports using Custom GPTs, but the PWA/Android share intent does not have a documented way to target a specific Custom GPT directly. The web-only `@` mention flow is not available in iOS/Android ChatGPT.
+The isolated deployment template lives in `cloudflare-action-api/`.
 
-Therefore the Action return path only runs when the shared image actually reaches the Custom GPT that has `submitScanResult` configured. Do not remove the clipboard fallback until this is proven on the target Android device.
+[Deploy to Cloudflare](https://deploy.workers.cloudflare.com/?url=https://github.com/TAMAFIT/order-sheet-pwa/tree/main/cloudflare-action-api)
 
-## Custom GPT setup
+Cloudflare's deploy flow reads `wrangler.jsonc` and can provision the KV namespace automatically.
 
-1. Deploy a result API. `server/cloudflare-worker.js` + D1 is the reference implementation.
-2. Create a strong random Action API key and store it only as a server secret and in the Custom GPT Action authentication settings. Do not put it in this repo or PWA.
-3. Replace `https://YOUR-WORKER.workers.dev` in `server/gpt-action-openapi.yaml` with the deployed API origin.
-4. In the GPT editor, add an Action using that OpenAPI schema and configure Bearer API-key authentication.
-5. Add instructions equivalent to:
+### One-time setup
 
-   - Read the `SCAN_ID` printed in the instruction header of the image.
-   - Extract every line item in paper order; do not aggregate yet.
-   - After analysis, call `submitScanResult` exactly once using that `SCAN_ID` and `status=completed`.
-   - If the Action is unavailable, denied or fails, return the JSON payload so the user can use the clipboard fallback.
+1. Open the Deploy to Cloudflare link above.
+2. Set `ACTION_API_KEY` to a long random secret. Never put that secret in Git, the PWA, Issue/PR text, logs, or normal ChatGPT conversation text.
+3. Finish deployment and copy the Worker base URL, e.g. `https://order-sheet-action-api.xxxxx.workers.dev`.
+4. Check `<WORKER_URL>/health` returns `ok: true`.
+5. In the PWA open `データ・設定 -> Custom GPT Action返却`, paste only the Worker URL, save, and run `接続テスト`.
+6. Open `<WORKER_URL>/openapi.json`. It contains the OpenAPI schema with the deployed Worker URL already filled in.
+7. In the Custom GPT editor, add that Action schema and configure Bearer API-key authentication with the same `ACTION_API_KEY` directly in the GPT Action settings.
+8. Add GPT instructions: read the `SCAN_ID` from the image header, preserve every row in paper order without aggregation, then call `submitScanResult` exactly once. If the Action fails or is denied, return the JSON so the clipboard fallback remains usable.
+9. Test once on the target Android device before relying on the Action path.
 
-6. Test in GPT Preview before mobile testing. Action execution can still require user approval in ChatGPT.
-7. In the PWA, open `データ・設定 -> Custom GPT Action返却` and enter only the API base URL. No secret is entered in the PWA.
-
-## Result API contract
+## API contract
 
 ### Action write
 
@@ -60,26 +59,35 @@ Therefore the Action return path only runs when the shared image actually reache
 }
 ```
 
-The POST endpoint is authenticated with a server-side Bearer key.
+The POST endpoint requires the server-side Bearer key. The Worker normalizes the payload and stores it in KV for 24 hours.
 
 ### PWA read
 
 `GET /scan/{scan_id}`
 
 - `200`: completed payload
-- `404`, `202` or `204`: result not ready yet
+- `404`: not ready / expired
 
-The reference implementation treats the UUID as a read capability and does not expose an API key to the browser. Keep results transient and rate-limit the deployed endpoint as appropriate.
+The PWA does not receive the Action secret. The random UUID is used only as a short-lived lookup capability.
 
-## Why Cloudflare Worker + D1 is the first recommendation
+### Utility endpoints
 
-For this workload the backend only stores small JSON results and serves short polling reads. It does not perform AI inference. This keeps the AI image analysis inside ChatGPT and makes the return channel provider-agnostic. A later `PWA -> OpenAI/Gemini API` ingress can post the same result schema without changing the review/aggregation UI.
+- `GET /health`: PWA connection test
+- `GET /openapi.json`: generated Action schema using the deployed origin
+
+## Mobile limitation
+
+Android/iOS ChatGPT does not provide a documented PWA share-intent route that always targets one specific Custom GPT. The Action route therefore only runs when the image reaches the Custom GPT that owns `submitScanResult`. Keep the clipboard fallback enabled.
+
+## Existing D1 reference
+
+`server/cloudflare-worker.js` + `server/schema.sql` remain as a D1 reference, but the KV template above is the recommended deployment for this one-user / low-volume app because it needs no database migration and scan results are intentionally transient.
 
 ## Future Actions
 
-Do not add these until the product/alias data is moved or synchronized from device-local storage to the server:
+Keep these out until the product/alias database is intentionally moved or synchronized from device-local storage:
 
-- `lookupProducts`: server-side product master + alias lookup
-- `saveCorrection`: persist human corrections to a shared learning DB
+- `lookupProducts`
+- `saveCorrection`
 
-The current product master and correction history remain device-local, so implementing those Actions now would create two inconsistent sources of truth.
+For the current single-device usage, product master, aliases and human corrections remain local to the PWA and do not depend on the backend.
