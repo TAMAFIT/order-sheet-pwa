@@ -1,4 +1,4 @@
-const CACHE = 'order-sheet-pwa-v11';
+const CACHE = 'order-sheet-pwa-v12';
 const ASSETS = [
   './',
   './index.html',
@@ -10,6 +10,8 @@ const ASSETS = [
   './review-edit-core.js',
   './session-history-core.js',
   './image-orientation-core.js',
+  './force-update-core.js',
+  './force-update.js',
   './chatgpt-flow.js',
   './action-return.js',
   './action-return-core.js',
@@ -38,11 +40,19 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
+  const requestUrl = new URL(event.request.url);
+  const sameOrigin = requestUrl.origin === self.location.origin;
+  const networkRequest = sameOrigin
+    ? new Request(event.request, { cache: 'no-store' })
+    : event.request;
+
   event.respondWith(
-    fetch(event.request)
+    fetch(networkRequest)
       .then(response => {
-        const copy = response.clone();
-        caches.open(CACHE).then(cache => cache.put(event.request, copy));
+        if (sameOrigin && response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE).then(cache => cache.put(event.request, copy));
+        }
         return response;
       })
       .catch(() => caches.match(event.request).then(cached => cached || caches.match('./index.html')))
