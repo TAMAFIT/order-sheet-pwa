@@ -11,6 +11,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: aeon-ayagawa-catalog-harvest
+  cancel-in-progress: true
+
 jobs:
   harvest:
     runs-on: ubuntu-latest
