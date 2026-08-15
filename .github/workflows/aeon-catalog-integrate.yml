@@ -40,6 +40,18 @@ jobs:
           test -f .tmp/aeon/meta.json
           test -f .tmp/aeon/categories.json
 
+      - name: Fix patcher template escaping
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('tools/integration/apply-aeon-catalog-integration.mjs')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace("candidates.map(candidate => `<button", "candidates.map(candidate => \\`<button")
+          s = s.replace("</button>`).join('')", "</button>\\`).join('')")
+          p.write_text(s, encoding='utf-8')
+          PY
+          node --check tools/integration/apply-aeon-catalog-integration.mjs
+
       - name: Build catalog and patch app integration
         run: node tools/integration/apply-aeon-catalog-integration.mjs .tmp/aeon
 
