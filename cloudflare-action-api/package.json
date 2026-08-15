@@ -1,0 +1,23 @@
+{
+  "name": "order-sheet-action-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --check src/index.js",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.102.0"
+  },
+  "cloudflare": {
+    "bindings": {
+      "ACTION_API_KEY": {
+        "description": "Generate a long random secret. Use the SAME value as the Bearer API key in the Custom GPT Action settings. Never put it in the PWA or GitHub."
+      },
+      "RESULTS": {
+        "description": "Temporary scan-result storage. Cloudflare can provision this KV namespace automatically."
+      }
+    }
+  }
+}
