@@ -1,0 +1,83 @@
+openapi: 3.1.0
+info:
+  title: Order Sheet Result API
+  version: 1.0.0
+  description: Stores handwritten order analysis results by scan_id so the PWA can retrieve them.
+servers:
+  - url: https://YOUR-WORKER.workers.dev
+paths:
+  /scan-result:
+    post:
+      operationId: submitScanResult
+      summary: Save the completed scan analysis result
+      description: Call exactly once after analyzing the order sheet. Use the SCAN_ID printed in the image without changing it.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [scan_id, status, items]
+              properties:
+                scan_id:
+                  type: string
+                  format: uuid
+                status:
+                  type: string
+                  enum: [completed]
+                items:
+                  type: array
+                  minItems: 1
+                  maxItems: 500
+                  items:
+                    $ref: '#/components/schemas/ScanItem'
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  scan_id: { type: string }
+                  status: { type: string }
+                  saved_items: { type: integer }
+        '400': { description: Invalid input }
+        '401': { description: Invalid Action API key }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    ScanItem:
+      type: object
+      additionalProperties: false
+      required: [order, name, quantity, cancelled]
+      properties:
+        order:
+          type: integer
+          minimum: 1
+        place:
+          type: string
+        time:
+          type: string
+        person:
+          type: string
+        name:
+          type: string
+        quantity:
+          type: number
+          minimum: 0
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        cancelled:
+          type: boolean
+        note:
+          type: string
