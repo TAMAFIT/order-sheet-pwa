@@ -4,6 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/lib.test.mjs tests/action-return.test.mjs && node --check app.js && node --check db.js && node --check ai.js && node --check lib.js && node --check chatgpt-flow.js && node --check action-return.js && node --check action-return-core.js && node --check scan-session.js && node --check server/cloudflare-worker.js && node --check cloudflare-action-api/src/index.js"
+    "test": "node --test tests/lib.test.mjs tests/action-return.test.mjs tests/cloudflare-action-api.test.mjs && node --check app.js && node --check db.js && node --check ai.js && node --check lib.js && node --check chatgpt-flow.js && node --check action-return.js && node --check action-return-core.js && node --check scan-session.js && node --check server/cloudflare-worker.js && node --check cloudflare-action-api/src/index.js"
   }
 }
