@@ -1,9 +1,20 @@
 {
   "name": "手書き注文 集計アシスタント",
-  "short_name": "手書き注文 集計アシスタ",
+  "short_name": "注文集計",
+  "description": "手書き注文票を商品別に集計し、表記揺れと売り場情報を学習するPWA",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#ffffff"
+  "background_color": "#f4f7f4",
+  "theme_color": "#2e6b45",
+  "lang": "ja",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
 }
