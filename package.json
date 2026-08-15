@@ -4,6 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/lib.test.mjs && node --check app.js && node --check db.js && node --check ai.js && node --check lib.js"
+    "test": "node --test tests/lib.test.mjs && node --check app.js && node --check db.js && node --check ai.js && node --check lib.js && node --check chatgpt-flow.js"
   }
 }

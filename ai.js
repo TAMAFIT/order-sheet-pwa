@@ -8,23 +8,40 @@ export function productsForPrompt(db) {
   }));
 }
 
-export function buildPrompt(db) {
-  return makeAnalysisPrompt(productsForPrompt(db));
+function currentReturnUrl() {
+  try {
+    const url = new URL(window.location.href);
+    url.search = '?from=chatgpt';
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return '';
+  }
 }
 
-const EMBEDDED_SHARE_PROMPT = [
-  'AIへの指示（この上部は注文内容ではありません）',
-  '下の手書き注文票から「商品名」と「注文数量」だけを読み取ってください。',
-  '・同じ商品でも統合せず、記載単位ごとに出力',
-  '・個人名 / 施設名 / 時間 / 金額は不要',
-  '・取消線で消された商品は cancelled=true',
-  '・「2個入」「2L」など商品名中の数字と注文数量を混同しない',
-  '・丸で囲まれた数字は注文数量として扱う',
-  '・読めない場合は confidence を下げる',
-  '・説明文なし、JSONだけ返す',
-  '{"items":[{"name":"商品名","quantity":2,"confidence":0.92,"cancelled":false,"note":""}]}',
-  '↓ ここから下が注文票です ↓'
-].join('\n');
+export function buildPrompt(db) {
+  return makeAnalysisPrompt(productsForPrompt(db), currentReturnUrl());
+}
+
+function embeddedSharePrompt() {
+  const returnUrl = currentReturnUrl();
+  return [
+    'AIへの指示（この上部は注文内容ではありません）',
+    '下の手書き注文票を、紙の上から順番に1明細ずつ読み取ってください。',
+    '・同じ商品でも統合・合算しない',
+    '・orderを1,2,3...で付ける',
+    '・施設/見出し→place、時間→time、個人名→person',
+    '・商品名→name、注文数量→quantity',
+    '・取消線は cancelled=true',
+    '・「2個入」「2L」など商品名中の数字と注文数量を混同しない',
+    '・丸で囲まれた数字は注文数量',
+    '・読めない場合は confidence を下げる',
+    '・最初にJSONコードブロック1つ。説明文は不要',
+    '{"items":[{"order":1,"place":"","time":"","person":"","name":"商品名","quantity":2,"confidence":0.92,"cancelled":false,"note":""}]}',
+    returnUrl ? `・JSONの直後にこのリンクをそのまま付ける: [集計アプリに戻る](${returnUrl})` : '',
+    '↓ ここから下が注文票です ↓'
+  ].filter(Boolean).join('\n');
+}
 
 function loadImage(file) {
   return new Promise((resolve, reject) => {
@@ -77,14 +94,14 @@ async function makePromptEmbeddedImage(file, index) {
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('この端末では共有用画像を作成できません');
 
-  const fontSize = Math.max(30, Math.min(54, Math.round(imageWidth * 0.022)));
-  const lineHeight = Math.round(fontSize * 1.46);
+  const fontSize = Math.max(28, Math.min(48, Math.round(imageWidth * 0.02)));
+  const lineHeight = Math.round(fontSize * 1.42);
   const sidePad = Math.round(imageWidth * 0.035);
-  const topPad = Math.round(fontSize * 0.9);
+  const topPad = Math.round(fontSize * 0.85);
   const textWidth = imageWidth - sidePad * 2;
 
   ctx.font = `700 ${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, "Noto Sans JP", sans-serif`;
-  const lines = wrapLines(ctx, EMBEDDED_SHARE_PROMPT, textWidth);
+  const lines = wrapLines(ctx, embeddedSharePrompt(), textWidth);
   const headerHeight = topPad * 2 + lines.length * lineHeight;
 
   canvas.width = imageWidth;
@@ -129,8 +146,6 @@ export async function shareToChatGPT(files, prompt) {
       const bundledFiles = await buildBundledShareFiles(sourceFiles);
       const canShareBundled = !navigator.canShare || navigator.canShare({ files: bundledFiles });
       if (canShareBundled) {
-        // Keep the full prompt in the clipboard as a fallback, but do not depend on
-        // Android/ChatGPT preserving text+file in the same share intent.
         try { await navigator.clipboard?.writeText?.(prompt); } catch {}
         await navigator.share({
           title: '注文票を解析',
@@ -186,11 +201,10 @@ export async function analyzeWithBackend({ endpoint, files, prompt, writerTag = 
 
 export const SAMPLE_ANALYSIS = {
   items: [
-    { name: 'らくれん', quantity: 2, confidence: 0.98, cancelled: false },
-    { name: 'ラクレン牛乳', quantity: 1, confidence: 0.95, cancelled: false },
-    { name: 'おーいお茶2L', quantity: 3, confidence: 0.99, cancelled: false },
-    { name: 'コロッケ2コ入', quantity: 1, confidence: 0.93, cancelled: false },
-    { name: 'ゴマドレ', quantity: 2, confidence: 0.88, cancelled: false },
-    { name: '新発売パンDX', quantity: 4, confidence: 0.62, cancelled: false }
+    { order: 1, place: '松ヶ崎', time: '10:40〜11:05', person: '泉近さん', name: 'ブルガリアヨーグルト', quantity: 1, confidence: 0.91, cancelled: false },
+    { order: 2, place: '松ヶ崎', time: '10:40〜11:05', person: '泉近さん', name: 'TVラベルレス水2L', quantity: 1, confidence: 0.86, cancelled: false },
+    { order: 3, place: '松ヶ崎', time: '10:40〜11:05', person: '木田さん', name: 'はちみつ赤飯', quantity: 1, confidence: 0.72, cancelled: false },
+    { order: 4, place: '松ヶ崎', time: '10:40〜11:05', person: '藤井さん', name: 'ブルガリヤヨーグルト', quantity: 2, confidence: 0.82, cancelled: false },
+    { order: 5, place: '松ヶ崎', time: '10:40〜11:05', person: '藤井さん', name: 'ゴマドレ', quantity: 1, confidence: 0.88, cancelled: false }
   ]
 };

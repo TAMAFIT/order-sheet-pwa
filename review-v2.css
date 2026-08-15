@@ -1,0 +1,367 @@
+.review-progress {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 10px;
+}
+
+.review-progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: #e8ece9;
+  overflow: hidden;
+}
+
+.review-progress-bar {
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: #2e6b45;
+  transition: width .2s ease;
+}
+
+.review-progress strong {
+  min-width: 42px;
+  text-align: right;
+  font-size: 13px;
+}
+
+.review-guide {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f4f7f5;
+  color: #445048;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.paper-group-head {
+  margin: 18px 0 6px;
+  padding: 8px 4px 6px;
+  border-bottom: 1px solid #dfe5e1;
+}
+
+.paper-group-head:first-child {
+  margin-top: 6px;
+}
+
+.paper-group-head h3 {
+  margin: 2px 0 0;
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.paper-group-meta {
+  color: #657169;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.review-line {
+  margin: 0 0 7px;
+  border: 1px solid #e0e5e2;
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+  transition: border-color .15s ease, background .15s ease;
+}
+
+.review-line.is-confirmed {
+  border-color: #cfe0d5;
+  background: #fbfdfb;
+}
+
+.review-line.is-cancelled {
+  opacity: .72;
+}
+
+.review-line-main {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px 6px;
+}
+
+.paper-order {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #f0f3f1;
+  color: #617067;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.review-line-text {
+  min-width: 0;
+}
+
+.review-line-text strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.review-line-sub {
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #79827c;
+  font-size: 11px;
+}
+
+.review-line-qty {
+  padding-left: 6px;
+  font-size: 16px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.review-line-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px 9px 46px;
+}
+
+.review-state {
+  margin-right: auto;
+  padding: 3px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.review-state.confirmed,
+.review-state.matched {
+  background: #e9f5ed;
+  color: #28633f;
+}
+
+.review-state.candidate {
+  background: #fff4d9;
+  color: #855d00;
+}
+
+.review-state.new {
+  background: #eef1f3;
+  color: #5d6870;
+}
+
+.review-state.cancelled {
+  background: #f8e9e9;
+  color: #8a3d3d;
+}
+
+.edit-toggle,
+.confirm-line-btn {
+  min-height: 32px;
+  border-radius: 9px;
+  padding: 0 12px;
+  border: 1px solid #d6ddd8;
+  background: #fff;
+  color: #303b34;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.confirm-line-btn {
+  border-color: #2e6b45;
+  background: #2e6b45;
+  color: #fff;
+}
+
+.confirmed-mark {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #e9f5ed;
+  color: #28633f;
+  font-weight: 900;
+}
+
+.review-editor {
+  border-top: 1px solid #e4e8e5;
+  background: #fafbfa;
+  padding: 12px;
+}
+
+.editor-field {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.editor-field > span,
+.editor-label {
+  color: #667168;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.editor-field input {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  border: 1px solid #d6ddd8;
+  border-radius: 10px;
+  background: #fff;
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.qty-editor {
+  display: grid;
+  grid-template-columns: 40px 70px 40px;
+  gap: 6px;
+  align-items: center;
+}
+
+.qty-editor button {
+  min-height: 40px;
+  border: 1px solid #d6ddd8;
+  border-radius: 10px;
+  background: #fff;
+  font-size: 20px;
+}
+
+.qty-editor input {
+  text-align: center;
+  padding-inline: 4px;
+}
+
+.candidate-section {
+  margin-top: 12px;
+}
+
+.candidate-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 7px;
+}
+
+.candidate-chip {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  border: 1px solid #d7ddd9;
+  border-radius: 999px;
+  background: #fff;
+  padding: 6px 9px;
+  color: #2f3933;
+  font: inherit;
+  text-align: left;
+}
+
+.candidate-chip.selected {
+  border-color: #2e6b45;
+  box-shadow: inset 0 0 0 1px #2e6b45;
+  background: #f2f8f4;
+}
+
+.candidate-chip span {
+  color: #6e7771;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.candidate-chip strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.candidate-chip small {
+  color: #6e7771;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.candidate-empty {
+  margin-top: 7px;
+  color: #7b837d;
+  font-size: 12px;
+}
+
+.editor-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-top: 13px;
+}
+
+.compact-btn {
+  min-height: 36px !important;
+  padding: 7px 10px !important;
+  font-size: 12px !important;
+}
+
+.active-choice {
+  border-color: #2e6b45 !important;
+  background: #f0f7f2 !important;
+}
+
+.danger-choice {
+  border-color: #c77b7b !important;
+  background: #fbf0f0 !important;
+  color: #7f3434 !important;
+}
+
+.finish-review-btn {
+  width: 100%;
+  margin-top: 14px;
+}
+
+.finish-review-btn:disabled {
+  opacity: .48;
+}
+
+@media (max-width: 520px) {
+  .review-line-main {
+    grid-template-columns: 25px minmax(0, 1fr) auto;
+    gap: 6px;
+    padding-inline: 8px;
+  }
+
+  .review-line-actions {
+    padding-left: 39px;
+    padding-right: 8px;
+  }
+
+  .review-state {
+    max-width: 42vw;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .candidate-chip {
+    width: 100%;
+    border-radius: 10px;
+    grid-template-columns: 42px minmax(0, 1fr) auto;
+  }
+
+  .editor-field {
+    grid-template-columns: 50px minmax(0, 1fr);
+  }
+}
