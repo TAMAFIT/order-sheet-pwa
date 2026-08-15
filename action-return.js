@@ -1,5 +1,6 @@
 import { buildScanResultUrl, extractCompletedScanPayload, normalizeApiBaseUrl } from './action-return-core.js';
 import { ensureActiveScan, getActiveScan, setActiveScanStatus, startNewScan } from './scan-session.js';
+import { DEFAULT_ACTION_BASE_URL } from './runtime-config.js';
 
 const CONFIG_KEY = 'order-sheet-action-return-config-v1';
 const AWAITING_KEY = 'order-sheet-action-awaiting-v1';
@@ -13,14 +14,14 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 function readConfig() {
   try {
     const config = JSON.parse(localStorage.getItem(CONFIG_KEY) || '{}');
-    return { baseUrl: normalizeApiBaseUrl(config.baseUrl || '') };
+    return { baseUrl: normalizeApiBaseUrl(config.baseUrl || DEFAULT_ACTION_BASE_URL) };
   } catch {
-    return { baseUrl: '' };
+    return { baseUrl: DEFAULT_ACTION_BASE_URL };
   }
 }
 
 function saveConfig(baseUrl) {
-  const clean = normalizeApiBaseUrl(baseUrl);
+  const clean = normalizeApiBaseUrl(baseUrl || DEFAULT_ACTION_BASE_URL);
   if (clean && !/^https:\/\//i.test(clean)) throw new Error('Action結果APIは https:// のURLを設定してください');
   localStorage.setItem(CONFIG_KEY, JSON.stringify({ baseUrl: clean, updatedAt: new Date().toISOString() }));
   return clean;
@@ -85,28 +86,35 @@ function rewriteFlowCopy() {
   const card = shareButton?.closest('.card');
   if (!card) return;
   const intro = card.querySelector('.card-sub');
-  if (intro) intro.textContent = '専用Custom GPT＋Actionsを設定すると、GPTの解析結果をscan_idで自動受信できます。Actions未設定・失敗時は従来のコピー方式をそのまま使えます。';
+  if (intro) intro.textContent = '「GPTへ送る」で専用の手書き注文解析GPTを直接開きます。SCAN_ID入りの共有用画像も端末へ保存されるので、GPTでその画像を添付して送信してください。';
 
   const steps = [...card.querySelectorAll('.guided-flow .flow-step')];
+  if (steps[0]) {
+    const title = steps[0].querySelector('h3');
+    const paragraph = steps[0].querySelector('p');
+    if (title) title.textContent = '専用GPTを開く';
+    if (paragraph) paragraph.textContent = 'ボタンを押すと、SCAN_IDと解析指示を埋め込んだ共有用画像を端末へ保存してから「手書き注文解析GPT」を直接開きます。';
+    if (shareButton) shareButton.textContent = '手書き注文解析GPTを開く';
+  }
   if (steps[1]) {
     const title = steps[1].querySelector('h3');
     const paragraphs = steps[1].querySelectorAll('p');
-    if (title) title.textContent = 'GPT解析 → Actionで結果保存';
-    if (paragraphs[0]) paragraphs[0].textContent = '専用GPTでは解析後に submitScanResult Action を実行し、結果をscan_idと一緒に外部APIへ保存します。確認画面が出た場合は許可してください。';
-    if (paragraphs[1]) paragraphs[1].textContent = 'Actionが使えない・失敗した場合だけ、GPTのJSON回答をコピーしてください。これが従来フォールバックです。';
+    if (title) title.textContent = '共有用画像を添付して送信';
+    if (paragraphs[0]) paragraphs[0].textContent = 'GPTの添付ボタンから、直前に保存された order-sheet-xxxx.jpg を選んで送信してください。解析後は submitScanResult Action がSCAN_IDと結果をCloudflareへ保存します。';
+    if (paragraphs[1]) paragraphs[1].textContent = 'Actionが使えない・失敗した場合だけ、GPTのJSON回答をコピーしてください。従来の取込ルートは残しています。';
   }
   if (steps[2]) {
     const title = steps[2].querySelector('h3');
     const paragraph = steps[2].querySelector('p');
-    if (title) title.textContent = 'PWAへ戻る → scan_idで自動取得';
-    if (paragraph) paragraph.textContent = 'PWAへ戻るとAction結果APIを短時間ポーリングします。結果が届けば自動で現在の全件確認UIへ反映します。未取得なら従来のコピー取込を使えます。';
+    if (title) title.textContent = 'PWAへ戻る → 自動取得';
+    if (paragraph) paragraph.textContent = '解析が終わったらPWAへ戻るだけです。同じSCAN_IDの結果を自動取得し、紙の順の全件確認画面へ反映します。';
   }
 
   if (!$('#actionRouteNote')) {
     const note = document.createElement('div');
     note.id = 'actionRouteNote';
     note.className = 'action-route-note';
-    note.innerHTML = '<strong>通常ルート：Action → API → PWA</strong><span id="actionRouteModeText"></span><div class="action-route-tools"><button id="checkActionResultBtn" class="secondary-btn" type="button">Action結果を確認</button></div>';
+    note.innerHTML = '<strong>通常ルート：専用GPT → Action → Cloudflare → PWA</strong><span id="actionRouteModeText"></span><div class="action-route-tools"><button id="checkActionResultBtn" class="secondary-btn" type="button">Action結果を確認</button></div>';
     card.querySelector('.guided-flow')?.insertAdjacentElement('afterend', note);
   }
   refreshModeText();
@@ -132,19 +140,20 @@ function injectSettings() {
   section.className = 'card';
   section.innerHTML = `
     <h2>Custom GPT Action返却</h2>
-    <p class="card-sub">ChatGPTの画像解析自体はそのまま使い、結果だけCloudflareへ一時保存してPWAがscan_idで取得します。PWAへAPIキーは入れません。</p>
-    <div class="security-note">初回だけCloudflare Workerを作成します。以後は利用者のPCやこの開発チャットが起動していなくても動作します。</div>
-    <div class="action-setup-tools">
-      <a class="secondary-btn action-deploy-link" href="${CLOUDFLARE_DEPLOY_URL}" target="_blank" rel="noopener noreferrer">Cloudflareをセットアップ</a>
-    </div>
+    <p class="card-sub">本番Worker URLは初期設定済みです。通常利用ではここを触る必要はありません。</p>
+    <div class="security-note">GPTの解析結果だけをCloudflareへ一時保存し、PWAがSCAN_IDで取得します。APIキーはPWAへ保存しません。</div>
     <div class="field">
-      <label for="actionResultBaseUrl">発行されたWorker URL</label>
+      <label for="actionResultBaseUrl">Worker URL</label>
       <input id="actionResultBaseUrl" type="url" inputmode="url" placeholder="https://order-sheet-action-api.xxxxx.workers.dev">
     </div>
     <div class="action-setup-tools">
       <button id="saveActionResultSettingsBtn" class="primary-btn" type="button">URLを保存</button>
       <button id="testActionResultSettingsBtn" class="secondary-btn" type="button">接続テスト</button>
     </div>
+    <details>
+      <summary class="text-button">Cloudflareを作り直す場合だけ</summary>
+      <div class="action-setup-tools"><a class="secondary-btn action-deploy-link" href="${CLOUDFLARE_DEPLOY_URL}" target="_blank" rel="noopener noreferrer">Cloudflareを再セットアップ</a></div>
+    </details>
     <div id="actionConfigStatus" class="action-config-status"></div>
   `;
   backendCard.insertAdjacentElement('beforebegin', section);
@@ -167,7 +176,7 @@ function refreshModeText() {
   const mode = $('#actionRouteModeText');
   if (!mode) return;
   mode.textContent = isConfigured()
-    ? 'Action結果API設定済み。PWA復帰時はまず自動取得を試し、失敗時だけコピー方式へ戻ります。'
+    ? '本番Action結果APIを使用します。PWA復帰時に自動取得を試し、失敗時だけコピー方式へ戻れます。'
     : 'Action結果APIは未設定です。現在は従来の「JSONをコピー → PWAへ戻る」が動作します。';
 }
 
@@ -197,7 +206,7 @@ async function testConnection() {
     if (!response.ok || payload?.ok !== true) throw new Error(`HTTP ${response.status}`);
     refreshModeText();
     refreshConfigStatus('接続OK');
-    setStatus('ready', 'Cloudflare接続OK。Custom GPT Action設定後は、PWAへ戻るだけで結果を取得できます');
+    setStatus('ready', 'Cloudflare接続OK。専用GPTで解析後は、PWAへ戻るだけで結果を取得できます');
     return true;
   } catch (error) {
     refreshConfigStatus(`接続NG: ${error.message || '応答なし'}`);
@@ -272,7 +281,7 @@ function setup() {
     startNewScan();
     clearAwaiting();
     updateScanLabel();
-    setStatus(isConfigured() ? 'ready' : 'manual', isConfigured() ? '新しいSCAN IDを発行しました。ChatGPTへ送信できます' : 'SCAN IDを発行しました。Action API未設定のためコピー方式で利用できます');
+    setStatus(isConfigured() ? 'ready' : 'manual', isConfigured() ? '新しいSCAN IDを発行しました。専用GPTへ送信できます' : 'SCAN IDを発行しました。Action API未設定のためコピー方式で利用できます');
   });
 
   $('#chatgptShareBtn')?.addEventListener('click', () => {
@@ -280,7 +289,7 @@ function setup() {
     setAwaiting(scan.scanId);
     setActiveScanStatus('shared', { sharedAt: new Date().toISOString() });
     updateScanLabel();
-    if (isConfigured()) setStatus('waiting', 'ChatGPTで解析中。Action成功後、PWAへ戻るだけで結果を自動取得します');
+    if (isConfigured()) setStatus('waiting', '専用GPTで共有用画像を添付して送信してください。Action成功後、PWAへ戻るだけで結果を自動取得します');
   });
 
   $('#checkActionResultBtn')?.addEventListener('click', () => pollBurst({ attempts: 3, intervalMs: 800, userInitiated: true }));
