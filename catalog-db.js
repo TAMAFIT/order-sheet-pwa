@@ -101,9 +101,19 @@ export class AeonCatalogDb {
   }
 
   async ensureReady({ force = false, onProgress = null } = {}) {
-    const manifest = await fetchJson(MANIFEST_URL);
-    if (!manifest?.catalogVersion || !Array.isArray(manifest.shards)) throw new Error('商品カタログの管理情報が不正です');
     const current = await this.storedMeta();
+    let manifest;
+    try {
+      manifest = await fetchJson(MANIFEST_URL);
+    } catch (error) {
+      if (!force && current?.count) {
+        this.readyMeta = current;
+        onProgress?.({ loaded: Number(current.count || 0), total: Number(current.count || 0), status: 'offline-ready' });
+        return current;
+      }
+      throw error;
+    }
+    if (!manifest?.catalogVersion || !Array.isArray(manifest.shards)) throw new Error('商品カタログの管理情報が不正です');
     if (!force && current?.catalogVersion === manifest.catalogVersion && Number(current?.count) === Number(manifest.count)) {
       this.readyMeta = current;
       onProgress?.({ loaded: Number(current.count || 0), total: Number(current.count || 0), status: 'ready' });
