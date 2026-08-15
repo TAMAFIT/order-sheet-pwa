@@ -1,4 +1,4 @@
-const CACHE = 'order-sheet-pwa-v18';
+const CACHE = 'order-sheet-pwa-v19';
 const ASSETS = [
   './',
   './index.html',
@@ -9,6 +9,7 @@ const ASSETS = [
   './catalog-v13.css',
   './capture-v14.css',
   './interaction-v18.css',
+  './instant-results-v19.css',
   './app.js',
   './catalog-core.js',
   './catalog-db.js',
@@ -16,6 +17,7 @@ const ASSETS = [
   './review-edit-core.js',
   './review-reorder-v17.js',
   './review-reorder-v18.js',
+  './instant-results-core.js',
   './session-history-core.js',
   './image-orientation-core.js',
   './capture-multishot-core.js',

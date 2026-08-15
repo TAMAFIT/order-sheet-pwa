@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="./catalog-v13.css">
   <link rel="stylesheet" href="./capture-v14.css">
   <link rel="stylesheet" href="./interaction-v18.css">
+  <link rel="stylesheet" href="./instant-results-v19.css">
 </head>
 <body>
   <main class="app-shell">
@@ -117,31 +118,38 @@
 
       <section id="reviewArea" class="card" hidden>
         <div class="section-head">
-          <div><span class="eyebrow">STEP 3</span><h2>注文内容を確認</h2></div>
-          <span id="reviewBadge" class="badge">0/0</span>
+<div><span class="eyebrow">EDIT</span><h2>明細を修正</h2></div>
+<span id="reviewBadge" class="badge">0件</span>
         </div>
-        <p id="reviewSummary" class="card-sub"></p>
-        <div class="review-progress" aria-label="確認進捗">
-          <div class="review-progress-track"><div id="reviewProgressBar" class="review-progress-bar"></div></div>
-          <strong id="reviewProgressText">0%</strong>
+        <p id="reviewSummary" class="card-sub">必要な時だけ明細を直せます。</p>
+        <div class="review-progress legacy-review-progress" aria-label="読み取り状態">
+<div class="review-progress-track"><div id="reviewProgressBar" class="review-progress-bar"></div></div>
+<strong id="reviewProgressText">読み取り済み</strong>
         </div>
-        <div class="review-guide">数量は − / ＋ ですぐ変更できます。商品名を直す時だけ「編集」を使います。</div>
+        <div class="review-guide">商品名・数量・取消・順番を後から自由に直せます。変更は集計結果へ即時反映されます。</div>
         <div id="reviewList"></div>
-        <button id="finishReviewBtn" class="primary-btn finish-review-btn" disabled>確認待ち</button>
+        <button id="finishReviewBtn" class="primary-btn finish-review-btn">編集を閉じて集計結果へ戻る</button>
       </section>
 
-      <section id="resultArea" class="card" hidden>
-        <span class="eyebrow">STEP 4</span>
-        <h2>商品別集計・ピッキング表</h2>
-        <p class="card-sub">確定した商品を自動でまとめて数量を合算します。</p>
-        <div class="totals-summary">
-          <div class="summary-box"><strong id="totalProductCount">0</strong><span>商品種類</span></div>
-          <div class="summary-box"><strong id="totalQuantity">0</strong><span>総数量</span></div>
+      <section id="resultArea" class="card instant-result-card" hidden>
+        <span class="eyebrow">RESULT</span>
+        <h2>今回の集計結果</h2>
+        <p class="instant-result-lead">画像から読み取れた商品を先にまとめています。問題がなければそのまま使えます。怪しいものだけ「要確認」に出します。</p>
+        <div class="totals-summary instant-summary">
+<div class="summary-box"><strong id="totalProductCount">0</strong><span>商品種類</span></div>
+<div class="summary-box"><strong id="totalQuantity">0</strong><span>総数量</span></div>
+<div class="summary-box"><strong id="needsReviewCount">0</strong><span>要確認</span></div>
         </div>
+        <section id="attentionPanel" class="attention-panel" hidden>
+<div class="attention-head"><strong>要確認・読み取りに自信がないもの</strong><span id="attentionCountBadge" class="attention-count">!</span></div>
+<div id="attentionList" class="attention-list"></div>
+        </section>
+        <div class="section-head"><div><h3>商品別集計・ピッキング表</h3></div></div>
         <div id="totalsList"></div>
-        <div class="button-row">
-          <button id="shareSummaryBtn" class="secondary-btn">結果を共有</button>
-          <button id="printBtn" class="primary-btn">印刷する</button>
+        <div class="button-row instant-actions">
+<button id="editDetailsBtn" class="secondary-btn detail-edit-btn">明細を編集</button>
+<button id="shareSummaryBtn" class="secondary-btn">結果を共有</button>
+<button id="printBtn" class="primary-btn">印刷する</button>
         </div>
       </section>
 

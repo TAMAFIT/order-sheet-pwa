@@ -1,9 +1,3 @@
-import { setupReviewReorder } from './review-reorder-v17.js';
-
-let liveRecognitionItems = [];
-
-setupReviewReorder(() => liveRecognitionItems);
-
 export function cloneValue(value) {
   if (typeof globalThis.structuredClone === 'function') return globalThis.structuredClone(value);
   return JSON.parse(JSON.stringify(value));
@@ -53,7 +47,6 @@ export function recentRestorableSessions(sessions = [], limit = 10) {
 }
 
 export function groupRecognitions(items = []) {
-  liveRecognitionItems = items;
   const groups = [];
   let current = null;
   for (const item of items) {
