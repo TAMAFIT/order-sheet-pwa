@@ -1,10 +1,180 @@
 <!doctype html>
 <html lang="ja">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>手書き注文 集計アシスタント</title>
-<style>body{font-family:system-ui,sans-serif;margin:0;min-height:100vh;display:grid;place-items:center;background:#f6f7f8;color:#17191c}main{max-width:680px;padding:40px}small{opacity:.6}</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2e6b45">
+  <meta name="description" content="手書き注文票を商品別に集計し、表記揺れと売り場情報を使うほど学習するPWA">
+  <title>手書き注文 集計アシスタント</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
 </head>
-<body><main><small>VoiceDev Site Factory draft</small><h1>手書き注文 集計アシスタント</h1><p>ChatGPT is preparing the production site. This draft is not published.</p></main></body>
+<body>
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">集</div>
+        <div>
+          <h1>手書き注文 集計アシスタント</h1>
+          <p>読む・数える・覚えるをひとつに</p>
+        </div>
+      </div>
+      <button id="installBtn" class="install-btn" hidden>アプリ化</button>
+    </header>
+
+    <section class="stats-strip" aria-label="学習データ統計">
+      <div class="stat"><strong id="productCount">0</strong><span>登録商品</span></div>
+      <div class="stat"><strong id="aliasCount">0</strong><span>表記パターン</span></div>
+      <div class="stat"><strong id="learnedCount">0</strong><span>人間確認履歴</span></div>
+    </section>
+
+    <nav class="tabs" aria-label="メインメニュー">
+      <button class="tab-button active" data-tab="scan">集計する</button>
+      <button class="tab-button" data-tab="products">商品DB</button>
+      <button class="tab-button" data-tab="data">データ・設定</button>
+    </nav>
+
+    <section id="tab-scan" class="tab-panel active">
+      <section class="card">
+        <span class="eyebrow">STEP 1</span>
+        <h2>注文票を入れる</h2>
+        <p class="card-sub">スマホで撮影、またはギャラリーから複数枚まとめて選択できます。</p>
+        <label class="upload-box">
+          <span class="upload-icon">▣</span>
+          <span class="upload-title">注文票を撮影・選択</span>
+          <span class="upload-help">JPG / PNG / HEIC など</span>
+          <input id="imageInput" type="file" accept="image/*" capture="environment" multiple>
+        </label>
+        <div class="selection-row"><span>選択中</span><span id="selectedCount" class="pill">0枚</span></div>
+        <div id="filePreviews" class="previews"></div>
+        <div class="field">
+          <label for="writerTag">記入者タグ（任意）</label>
+          <input id="writerTag" type="text" placeholder="例：担当A / 午前担当">
+        </div>
+        <p class="hint">記入者タグを付けると、その人特有の略し方・書き方を将来の候補順位に反映できます。</p>
+      </section>
+
+      <section class="card">
+        <span class="eyebrow">STEP 2</span>
+        <h2>読み取る</h2>
+        <p class="card-sub">プロトタイプでは3通り。無料ChatGPTモードならAPIキー不要です。</p>
+        <div class="mode-grid">
+          <article class="mode-card">
+            <h3>無料ChatGPTモード</h3>
+            <p>画像と専用プロンプトをChatGPTへ共有し、返ってきたJSONを下に貼り付けます。API料金なし。</p>
+            <div class="button-row">
+              <button id="chatgptShareBtn" class="primary-btn">ChatGPTへ共有</button>
+              <button id="copyPromptBtn" class="secondary-btn">プロンプトだけコピー</button>
+            </div>
+          </article>
+          <article class="mode-card">
+            <h3>バックエンド自動モード</h3>
+            <p>安全なGAS / Cloudflare / Cloud Run等を後から接続すると、撮影→AI解析までワンタップ化できます。</p>
+            <button id="backendAnalyzeBtn" class="secondary-btn">バックエンドで自動解析</button>
+          </article>
+          <article class="mode-card">
+            <h3>デモ</h3>
+            <p>AIなしで商品統合・学習・売り場分類の動作をすぐ確認できます。</p>
+            <button id="sampleBtn" class="secondary-btn">サンプルで試す</button>
+          </article>
+        </div>
+        <div class="field">
+          <label for="analysisJson">ChatGPTのJSON結果</label>
+          <textarea id="analysisJson" spellcheck="false" placeholder='{"items":[{"name":"らくれん","quantity":2,"confidence":0.95,"cancelled":false}]}'></textarea>
+        </div>
+        <button id="parseResultBtn" class="primary-btn">JSONを読み込んで集計</button>
+        <details>
+          <summary class="text-button">使用する解析プロンプトを見る</summary>
+          <div class="field"><textarea id="promptPreview" readonly></textarea></div>
+        </details>
+      </section>
+
+      <section id="reviewArea" class="card" hidden>
+        <div class="section-head">
+          <div><span class="eyebrow">STEP 3</span><h2>迷った商品だけ確認</h2></div>
+          <span id="reviewBadge" class="badge">0</span>
+        </div>
+        <p id="reviewSummary" class="card-sub"></p>
+        <div id="reviewList"></div>
+      </section>
+
+      <section id="resultArea" class="card" hidden>
+        <span class="eyebrow">STEP 4</span>
+        <h2>翌朝のピッキング表</h2>
+        <p class="card-sub">同じ商品は合算済み。A〜Eの売り場を変更すると、その場でDBへ記憶されます。</p>
+        <div class="totals-summary">
+          <div class="summary-box"><strong id="totalProductCount">0</strong><span>商品種類</span></div>
+          <div class="summary-box"><strong id="totalQuantity">0</strong><span>総数量</span></div>
+        </div>
+        <div id="totalsList"></div>
+        <div class="button-row">
+          <button id="shareSummaryBtn" class="secondary-btn">結果を共有</button>
+          <button id="printBtn" class="primary-btn">印刷する</button>
+        </div>
+      </section>
+    </section>
+
+    <section id="tab-products" class="tab-panel">
+      <section class="card">
+        <span class="eyebrow">LEARNING DATABASE</span>
+        <h2>商品DB</h2>
+        <p class="card-sub">同じ商品でも違う書き方を、人間が一度教えると次回以降の候補に使います。</p>
+        <div class="search-row">
+          <input id="productSearch" type="search" placeholder="商品名・別表記を検索">
+          <button id="addProductBtn" class="small-btn">＋商品</button>
+        </div>
+      </section>
+      <div id="productList"></div>
+    </section>
+
+    <section id="tab-data" class="tab-panel">
+      <section class="card">
+        <span class="eyebrow">DATABASE</span>
+        <h2>育ったデータ</h2>
+        <div class="data-stats">
+          <div class="data-stat"><strong id="dataProductCount">0</strong><span>商品</span></div>
+          <div class="data-stat"><strong id="dataAliasCount">0</strong><span>表記</span></div>
+          <div class="data-stat"><strong id="dataHistoryCount">0</strong><span>認識履歴</span></div>
+          <div class="data-stat"><strong id="dataSessionCount">0</strong><span>集計履歴</span></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>AIバックエンド設定</h2>
+        <p class="card-sub">本番移行時にOpenAI / Gemini等を安全なサーバー側から呼ぶための接続口です。</p>
+        <div class="security-note">APIキーはこのPWAに入力しません。キーはGASのScript PropertiesやCloud側Secretへ置き、この画面にはHTTPSの中継URLだけを設定します。</div>
+        <div class="field">
+          <label for="providerLabel">表示名</label>
+          <input id="providerLabel" type="text" placeholder="例：Gemini 自動解析">
+        </div>
+        <div class="field">
+          <label for="backendEndpoint">HTTPSバックエンドURL</label>
+          <input id="backendEndpoint" type="url" inputmode="url" placeholder="https://...">
+        </div>
+        <button id="saveSettingsBtn" class="primary-btn">接続設定を保存</button>
+      </section>
+
+      <section class="card">
+        <h2>移植・バックアップ</h2>
+        <p class="card-sub">商品名、別表記、記入者ごとの癖、売り場履歴、訂正履歴を1つのJSONとして持ち出せます。</p>
+        <div class="button-row">
+          <button id="exportBtn" class="secondary-btn">DBを書き出す</button>
+          <label class="primary-btn" style="text-align:center">DBを読み込む<input id="importInput" type="file" accept="application/json" hidden></label>
+        </div>
+        <p class="hint">クライアント納品時はこのJSONを新しい環境へ読み込めば、育てた辞書をそのまま移せます。</p>
+      </section>
+
+      <section class="card">
+        <h2>初期化</h2>
+        <p class="card-sub">検証用データを消して初期状態へ戻します。</p>
+        <button id="resetBtn" class="danger-btn">学習DBを初期化</button>
+      </section>
+    </section>
+
+    <p class="footer-note">このプロトタイプは画像自体をDBへ保存しません。商品辞書・訂正結果・売り場情報のみ端末内に保持します。</p>
+  </main>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="./app.js"></script>
+</body>
 </html>
