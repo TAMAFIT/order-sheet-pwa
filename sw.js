@@ -1,4 +1,4 @@
-const CACHE = 'order-sheet-pwa-v16';
+const CACHE = 'order-sheet-pwa-v17';
 const ASSETS = [
   './',
   './index.html',
@@ -13,6 +13,7 @@ const ASSETS = [
   './catalog-db.js',
   './catalog/aeon-ayagawa/manifest.json',
   './review-edit-core.js',
+  './review-reorder-v17.js',
   './session-history-core.js',
   './image-orientation-core.js',
   './capture-multishot-core.js',
