@@ -2,7 +2,7 @@ name: AEON Ayagawa Catalog Harvest
 
 on:
   push:
-    branches: [data/aeon-ayagawa-catalog]
+    branches: [data/aeon-ayagawa-catalog-v2]
     paths:
       - 'tools/aeon-catalog/**'
       - '.github/workflows/aeon-ayagawa-catalog.yml'
@@ -12,13 +12,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: aeon-ayagawa-catalog-harvest
+  group: aeon-ayagawa-catalog-harvest-v2
   cancel-in-progress: true
 
 jobs:
   harvest:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,13 +28,27 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Add crash-safe category checkpoints
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('tools/aeon-catalog/harvest.mjs')
+          s = p.read_text(encoding='utf-8')
+          needle = "    await crawlCategory(categoryUrl, robotsGroups, products, categoryStats);\n  }\n  await writeOutputs(products, categoryStats, robotsInfo);"
+          replacement = "    await crawlCategory(categoryUrl, robotsGroups, products, categoryStats);\n    if (products.size >= 50) await writeOutputs(products, categoryStats, robotsInfo);\n  }\n  await writeOutputs(products, categoryStats, robotsInfo);"
+          if needle not in s:
+              raise SystemExit('checkpoint patch target not found')
+          p.write_text(s.replace(needle, replacement, 1), encoding='utf-8')
+          PY
+
       - name: Syntax check
         run: node --check tools/aeon-catalog/harvest.mjs
 
       - name: Harvest public AEON Ayagawa catalog
         env:
           AEON_REQUEST_DELAY_MS: '850'
-          AEON_MAX_REQUESTS: '650'
+          AEON_MAX_REQUESTS: '1000'
         run: node tools/aeon-catalog/harvest.mjs
 
       - name: Upload catalog artifact
@@ -44,3 +58,4 @@ jobs:
           name: aeon-ayagawa-catalog
           path: data/aeon-ayagawa/
           if-no-files-found: warn
+          retention-days: 30
