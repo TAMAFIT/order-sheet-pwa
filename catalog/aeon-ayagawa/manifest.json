@@ -1,0 +1,143 @@
+{
+  "schemaVersion": 1,
+  "provider": "aeon-ayagawa",
+  "storeId": "01050000070020",
+  "storeName": "イオン綾川店",
+  "sourceRoot": "https://shop.aeon.com/netsuper/01050000070020/",
+  "catalogVersion": "2026-08-15T07:43:29.096Z",
+  "count": 37063,
+  "uniqueNames": 36987,
+  "categoryCount": 50,
+  "requestCount": 594,
+  "note": "Public AEON Net Super catalog reference. The app keeps this catalog separate from confirmed/learned products and copies only human-selected catalog products into the learning DB.",
+  "shards": [
+    {
+      "file": "part-00.json",
+      "count": 1424
+    },
+    {
+      "file": "part-01.json",
+      "count": 1141
+    },
+    {
+      "file": "part-02.json",
+      "count": 1197
+    },
+    {
+      "file": "part-03.json",
+      "count": 1125
+    },
+    {
+      "file": "part-04.json",
+      "count": 1133
+    },
+    {
+      "file": "part-05.json",
+      "count": 1162
+    },
+    {
+      "file": "part-06.json",
+      "count": 1204
+    },
+    {
+      "file": "part-07.json",
+      "count": 1173
+    },
+    {
+      "file": "part-08.json",
+      "count": 1185
+    },
+    {
+      "file": "part-09.json",
+      "count": 1159
+    },
+    {
+      "file": "part-10.json",
+      "count": 1127
+    },
+    {
+      "file": "part-11.json",
+      "count": 1117
+    },
+    {
+      "file": "part-12.json",
+      "count": 1202
+    },
+    {
+      "file": "part-13.json",
+      "count": 1189
+    },
+    {
+      "file": "part-14.json",
+      "count": 1188
+    },
+    {
+      "file": "part-15.json",
+      "count": 1172
+    },
+    {
+      "file": "part-16.json",
+      "count": 1107
+    },
+    {
+      "file": "part-17.json",
+      "count": 1065
+    },
+    {
+      "file": "part-18.json",
+      "count": 1101
+    },
+    {
+      "file": "part-19.json",
+      "count": 1131
+    },
+    {
+      "file": "part-20.json",
+      "count": 1156
+    },
+    {
+      "file": "part-21.json",
+      "count": 1160
+    },
+    {
+      "file": "part-22.json",
+      "count": 1202
+    },
+    {
+      "file": "part-23.json",
+      "count": 1137
+    },
+    {
+      "file": "part-24.json",
+      "count": 1127
+    },
+    {
+      "file": "part-25.json",
+      "count": 1102
+    },
+    {
+      "file": "part-26.json",
+      "count": 1121
+    },
+    {
+      "file": "part-27.json",
+      "count": 1137
+    },
+    {
+      "file": "part-28.json",
+      "count": 1142
+    },
+    {
+      "file": "part-29.json",
+      "count": 1150
+    },
+    {
+      "file": "part-30.json",
+      "count": 1143
+    },
+    {
+      "file": "part-31.json",
+      "count": 1184
+    }
+  ]
+}

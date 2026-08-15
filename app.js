@@ -5,8 +5,11 @@ import { restoreActionScan } from './action-return.js';
 import { getActiveScanId } from './scan-session.js';
 import { insertRecognitionAfter, removeRecognition, restoreRecognition } from './review-edit-core.js';
 import { buildSessionSnapshot, cloneValue, findResumeSession, groupRecognitions, recentRestorableSessions } from './session-history-core.js';
+import { AeonCatalogDb } from './catalog-db.js';
 
 const db = new OrderDb();
+const catalogDb = new AeonCatalogDb();
+let catalogInitPromise = null;
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 
@@ -20,7 +23,9 @@ const state = {
   rawPayload: '',
   writerTag: '',
   imageFlip180: false,
-  installPrompt: null
+  installPrompt: null,
+  catalogReady: false,
+  catalogMeta: null
 };
 
 function escapeHtml(value = '') {
@@ -71,6 +76,100 @@ function formatSessionDate(value) {
   return new Intl.DateTimeFormat('ja-JP', {
     month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'
   }).format(date);
+}
+
+
+function setCatalogStatus(message, stateName = '') {
+  const element = $('#catalogStatus');
+  if (!element) return;
+  element.textContent = message;
+  element.dataset.state = stateName;
+}
+
+async function initCatalog({ force = false } = {}) {
+  if (force) catalogInitPromise = null;
+  if (catalogInitPromise) return catalogInitPromise;
+  catalogInitPromise = (async () => {
+    try {
+      setCatalogStatus('イオン綾川の商品カタログを準備しています…', 'loading');
+      const meta = await catalogDb.ensureReady({
+        force,
+        onProgress: ({ loaded, total, status }) => {
+          if (status === 'offline-ready') {
+            setCatalogStatus('保存済みカタログをオフラインで利用中', 'ready');
+            return;
+          }
+          if (!total || status === 'ready') return;
+          const percent = Math.min(100, Math.round((loaded / total) * 100));
+          setCatalogStatus(`商品カタログを準備中… ${percent}%`, 'loading');
+        }
+      });
+      state.catalogReady = true;
+      state.catalogMeta = meta;
+      const previous = db.data.catalogMeta || {};
+      if (previous.provider !== 'aeon-ayagawa' || Number(previous.itemCount) !== Number(meta.count) || previous.catalogVersion !== meta.catalogVersion) {
+        db.updateCatalogMeta({
+          provider: 'aeon-ayagawa',
+          itemCount: Number(meta.count || 0),
+          importedAt: meta.importedAt || null,
+          catalogVersion: meta.catalogVersion || '',
+          storeId: meta.storeId || '',
+          storage: 'separate-indexeddb'
+        });
+      }
+      setCatalogStatus(`イオン綾川 ${Number(meta.count || 0).toLocaleString('ja-JP')}商品を利用できます`, 'ready');
+      renderDataStats();
+      return meta;
+    } catch (error) {
+      state.catalogReady = false;
+      setCatalogStatus('商品カタログを準備できませんでした。通常の学習DBだけで利用できます。', 'error');
+      console.warn('AEON catalog init failed', error);
+      throw error;
+    }
+  })();
+  return catalogInitPromise;
+}
+
+function importCatalogProduct(candidate) {
+  if (!candidate?.jan || !candidate?.name) return null;
+  const product = db.addProduct(candidate.name, '', {
+    jan: candidate.jan,
+    source: 'aeon-ayagawa',
+    category: candidate.category || '',
+    catalogVersion: state.catalogMeta?.catalogVersion || ''
+  });
+  renderHeaderStats();
+  return product;
+}
+
+async function refreshCatalogCandidates(item, { rerender = true } = {}) {
+  if (!item?.rawName?.trim()) {
+    if (item) item.catalogCandidates = [];
+    return [];
+  }
+  try {
+    await initCatalog();
+    const candidates = await catalogDb.search(item.rawName, 5);
+    if (!state.recognitions.some(recognition => recognition.id === item.id)) return candidates;
+    item.catalogCandidates = candidates;
+    if (rerender && state.expanded.has(item.id)) renderReview();
+    return candidates;
+  } catch {
+    item.catalogCandidates = [];
+    return [];
+  }
+}
+
+async function hydratePendingCatalogCandidates() {
+  if (!state.recognitions.length) return;
+  try {
+    await initCatalog();
+  } catch {
+    return;
+  }
+  const targets = state.recognitions.filter(item => item.status !== 'confirmed' && Number(item.suggestedScore || 0) < 0.64 && item.rawName?.trim()).slice(0, 60);
+  for (const item of targets) await refreshCatalogCandidates(item, { rerender: false });
+  if (targets.length) renderReview();
 }
 
 function setTab(name) {
@@ -188,6 +287,7 @@ function ingestItems(items, source = 'manual') {
     .map(item => resolveRecognitionItem(item, db.data, writerTag))
     .sort((a, b) => a.order - b.order);
   renderReview();
+  void hydratePendingCatalogCandidates();
   renderHeaderStats();
   $('#resultArea').hidden = true;
   $('#reviewArea').hidden = false;
@@ -272,6 +372,7 @@ function candidateHint(item) {
   const score = Number(item.candidates?.[0]?.score || 0);
   if (score >= 0.93) return '<span class="review-state matched">既存商品とほぼ一致</span>';
   if (score >= 0.64) return '<span class="review-state candidate">似た商品候補あり</span>';
+  if (Number(item.catalogCandidates?.[0]?.score || 0) >= 0.72) return '<span class="review-state catalog">イオン候補あり</span>';
   return '<span class="review-state new">新商品候補</span>';
 }
 
@@ -297,6 +398,12 @@ function renderEditPanel(item) {
         <span>候補${index + 1}</span><strong>${escapeHtml(candidate.canonicalName)}</strong><small>${formatConfidence(candidate.score)}${candidate.location ? ` · ${escapeHtml(candidate.location)}` : ''}</small>
       </button>`).join('')
     : '<div class="candidate-empty">近い登録商品はまだありません</div>';
+  const catalogCandidates = (item.catalogCandidates || []).filter(candidate => candidate.score >= 0.55).slice(0, 4);
+  const catalogHtml = catalogCandidates.length
+    ? catalogCandidates.map((candidate, index) => `<button class="candidate-chip catalog-candidate-chip" data-action="catalog-candidate" data-id="${item.id}" data-jan="${candidate.jan}">
+        <span>イオン候補${index + 1}</span><strong>${escapeHtml(candidate.name)}</strong><small>${formatConfidence(candidate.score)}${candidate.category ? ` · ${escapeHtml(candidate.category)}` : ''}</small>
+      </button>`).join('')
+    : `<div class="candidate-empty">${state.catalogReady ? 'イオン綾川カタログに近い候補はありません' : 'イオン綾川カタログを準備中です'}</div>`;
 
   return `<div class="review-editor">
     <label class="editor-field">
@@ -306,6 +413,10 @@ function renderEditPanel(item) {
     <div class="candidate-section">
       <div class="editor-label">既存商品と統合する場合</div>
       <div class="candidate-chips">${candidateHtml}</div>
+    </div>
+    <div class="candidate-section catalog-candidate-section">
+      <div class="editor-label">イオン綾川の商品から探す</div>
+      <div class="candidate-chips">${catalogHtml}</div>
     </div>
     <div class="editor-tools">
       <button type="button" class="secondary-btn compact-btn ${item.forceNew ? 'active-choice' : ''}" data-action="new-product" data-id="${item.id}">新商品として扱う</button>
@@ -400,6 +511,20 @@ function selectCandidate(item, productId) {
   toast(`「${product.canonicalName}」へ統合する設定にしました`);
 }
 
+
+function selectCatalogCandidate(item, jan) {
+  const candidate = (item?.catalogCandidates || []).find(entry => entry.jan === jan);
+  if (!item || !candidate) return;
+  const product = importCatalogProduct(candidate);
+  if (!product) return;
+  markDirty(item);
+  item.matchedProductId = product.id;
+  item.forceNew = false;
+  state.expanded.add(item.id);
+  renderReview();
+  toast(`イオン綾川の「${candidate.name}」を選びました`);
+}
+
 function setNewProduct(item) {
   if (!item) return;
   markDirty(item);
@@ -456,7 +581,7 @@ function deleteRecognition(item) {
   });
 }
 
-function confirmRecognition(item) {
+async function confirmRecognition(item) {
   if (!item) return;
   if (!item.rawName.trim()) return toast('商品名を入力してください', 'warn');
   if (!Number.isFinite(Number(item.quantity)) || Number(item.quantity) < 0) return toast('数量を確認してください', 'warn');
@@ -488,10 +613,22 @@ function confirmRecognition(item) {
     } else if (!item.forceNew && best?.score >= 0.64) {
       state.expanded.add(item.id);
       renderReview();
-      toast('似た商品があります。候補を選ぶか「新商品として扱う」を押してください', 'warn');
+      toast('学習済み商品に似た候補があります。候補を選んでください', 'warn');
       return;
-    } else {
-      item.forceNew = true;
+    } else if (!item.forceNew) {
+      const catalogCandidates = await refreshCatalogCandidates(item, { rerender: false });
+      const catalogBest = catalogCandidates[0];
+      if (catalogBest?.exact) {
+        const catalogProduct = importCatalogProduct(catalogBest);
+        item.matchedProductId = catalogProduct?.id || null;
+      } else if (catalogBest?.score >= 0.72) {
+        state.expanded.add(item.id);
+        renderReview();
+        toast('イオン綾川カタログに似た商品があります。候補を確認してください', 'warn');
+        return;
+      } else {
+        item.forceNew = true;
+      }
     }
   }
 
@@ -527,18 +664,23 @@ function handleReviewClick(event) {
   if (!item) return;
 
   if (action === 'toggle-edit') {
-    if (state.expanded.has(item.id)) state.expanded.delete(item.id);
-    else state.expanded.add(item.id);
+    const opening = !state.expanded.has(item.id);
+    if (opening) state.expanded.add(item.id);
+    else state.expanded.delete(item.id);
     renderReview();
+    if (opening) void refreshCatalogCandidates(item);
   } else if (action === 'edit-name') {
     state.expanded.add(item.id);
     renderReview();
+    void refreshCatalogCandidates(item);
     focusRecognitionName(item.id);
   } else if (action === 'close-edit') {
     state.expanded.delete(item.id);
     renderReview();
   } else if (action === 'candidate') {
     selectCandidate(item, button.dataset.product);
+  } else if (action === 'catalog-candidate') {
+    selectCatalogCandidate(item, button.dataset.jan);
   } else if (action === 'new-product') {
     setNewProduct(item);
   } else if (action === 'toggle-cancel') {
@@ -555,7 +697,7 @@ function handleReviewClick(event) {
   } else if (action === 'delete') {
     deleteRecognition(item);
   } else if (action === 'confirm') {
-    confirmRecognition(item);
+    void confirmRecognition(item);
   }
 }
 
@@ -574,6 +716,7 @@ function handleReviewChange(event) {
     refreshCandidates(item);
     state.expanded.add(item.id);
     renderReview();
+    void refreshCatalogCandidates(item);
   }
 }
 
@@ -687,6 +830,7 @@ function restoreSessionById(id) {
   if ($('#analysisJson')) $('#analysisJson').value = state.rawPayload;
   $('#reviewArea').hidden = false;
   renderReview();
+  void hydratePendingCatalogCandidates();
   if (session.workflowStatus === 'complete') {
     renderTotals(false);
     $('#resultArea').hidden = false;
@@ -729,7 +873,7 @@ function renderProducts() {
     const humanLearned = aliases.filter(a => a.source === 'human-correction').length;
     return `<article class="product-card">
       <div class="product-main"><div><h3>${escapeHtml(product.canonicalName)}</h3><div class="alias-line">${aliases.slice(0, 5).map(a => `<span>${escapeHtml(a.alias)}</span>`).join('')}${aliases.length > 5 ? `<span>+${aliases.length - 5}</span>` : ''}</div></div><select class="db-location-select" data-product="${product.id}">${locationOptions(product.location)}</select></div>
-      <div class="product-meta">表記 ${aliases.length}件 · 手動学習 ${humanLearned}件</div>
+      <div class="product-meta">表記 ${aliases.length}件 · 手動学習 ${humanLearned}件${product.source === 'aeon-ayagawa' ? ` · <span class="catalog-source">イオン綾川${product.jan ? ` JAN ${escapeHtml(product.jan)}` : ''}</span>` : ''}</div>
       <button class="text-button add-alias-btn" data-product="${product.id}">＋ 別の書き方を登録</button>
     </article>`;
   }).join('') || '<div class="empty-state">該当する商品がありません</div>';
@@ -748,6 +892,65 @@ function renderProducts() {
     renderHeaderStats();
     toast('別表記を登録しました');
   }));
+}
+
+
+let catalogSearchTimer = null;
+async function renderCatalogSearch() {
+  const input = $('#catalogSearch');
+  const results = $('#catalogSearchResults');
+  if (!input || !results) return;
+  const query = input.value.trim();
+  if (query.length < 2) {
+    results.innerHTML = '<div class="empty-mini">2文字以上入力すると37,063商品から検索します</div>';
+    return;
+  }
+  results.innerHTML = '<div class="empty-mini">検索中…</div>';
+  try {
+    await initCatalog();
+    const candidates = await catalogDb.search(query, 20);
+    results.innerHTML = candidates.length ? candidates.map(candidate => `<button type="button" class="catalog-result" data-catalog-register="${candidate.jan}">
+      <span><strong>${escapeHtml(candidate.name)}</strong><small>${escapeHtml(candidate.category || 'カテゴリ未設定')} · JAN ${escapeHtml(candidate.jan)}</small></span>
+      <b>登録</b>
+    </button>`).join('') : '<div class="empty-mini">近い商品が見つかりませんでした</div>';
+  } catch {
+    results.innerHTML = '<div class="empty-mini">カタログを検索できませんでした</div>';
+  }
+}
+
+async function handleCatalogSearchClick(event) {
+  const button = event.target.closest('[data-catalog-register]');
+  if (!button) return;
+  try {
+    const record = await catalogDb.getByJan(button.dataset.catalogRegister);
+    if (!record) return toast('商品情報を読み込めませんでした', 'error');
+    const product = importCatalogProduct({ jan: record.jan, name: record.name, category: record.category });
+    renderProducts();
+    renderHeaderStats();
+    toast(`「${product.canonicalName}」を学習DBへ登録しました`);
+  } catch (error) {
+    toast(error.message || '商品を登録できませんでした', 'error');
+  }
+}
+
+async function refreshCatalogNow() {
+  const button = $('#refreshCatalogBtn');
+  if (button) {
+    button.disabled = true;
+    button.textContent = '更新中…';
+  }
+  try {
+    await initCatalog({ force: true });
+    await hydratePendingCatalogCandidates();
+    toast('商品カタログを最新版へ更新しました');
+  } catch (error) {
+    toast(error.message || '商品カタログを更新できませんでした', 'error');
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = '商品カタログを更新';
+    }
+  }
 }
 
 function addProductManually() {
@@ -847,6 +1050,12 @@ function setupEvents() {
   $('#printBtn').addEventListener('click', () => window.print());
   $('#productSearch').addEventListener('input', renderProducts);
   $('#addProductBtn').addEventListener('click', addProductManually);
+  $('#catalogSearch')?.addEventListener('input', () => {
+    clearTimeout(catalogSearchTimer);
+    catalogSearchTimer = setTimeout(renderCatalogSearch, 180);
+  });
+  $('#catalogSearchResults')?.addEventListener('click', handleCatalogSearchClick);
+  $('#refreshCatalogBtn')?.addEventListener('click', refreshCatalogNow);
   $('#saveSettingsBtn').addEventListener('click', saveSettings);
   $('#exportBtn').addEventListener('click', downloadBackup);
   $('#importInput').addEventListener('change', event => importBackup(event.target.files?.[0]));
@@ -877,6 +1086,7 @@ function init() {
   setupEvents();
   setupInstall();
   registerServiceWorker();
+  void initCatalog().then(() => hydratePendingCatalogCandidates()).catch(() => {});
 }
 
 init();
