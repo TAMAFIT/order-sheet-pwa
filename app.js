@@ -539,6 +539,9 @@ function setNewProduct(item) {
   markDirty(item);
   item.matchedProductId = null;
   item.forceNew = true;
+  item.confidence = 1;
+  item.note = '';
+  item.manualCorrected = true;
   state.expanded.add(item.id);
   renderReview();
 }
@@ -751,6 +754,9 @@ function handleReviewClick(event) {
   } else if (action === 'qty-minus' || action === 'qty-plus') {
     markDirty(item);
     item.quantity = Math.max(0, Number(item.quantity || 0) + (action === 'qty-plus' ? 1 : -1));
+    if (/数量.*(判読|不明|困難)|(判読|不明|困難).*数量/u.test(String(item.note || ''))) item.note = '';
+    item.confidence = Math.max(Number(item.confidence || 0), 0.95);
+    item.manualCorrected = true;
     renderReview();
   } else if (action === 'insert-after') {
     addRecognitionAfter(item);
@@ -813,6 +819,7 @@ function renderTotals(save = true) {
   $('#totalProductCount').textContent = totals.length;
   $('#totalQuantity').textContent = totals.reduce((sum, item) => sum + item.quantity, 0);
   if ($('#needsReviewCount')) $('#needsReviewCount').textContent = attention.length;
+  if ($('#attentionCountBadge')) $('#attentionCountBadge').textContent = attention.length;
 
   const attentionPanel = $('#attentionPanel');
   const attentionList = $('#attentionList');
