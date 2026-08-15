@@ -1,4 +1,5 @@
 const AWAITING_KEY = 'order-sheet-awaiting-chatgpt';
+const ACTION_AWAITING_KEY = 'order-sheet-action-awaiting-v1';
 const LAST_IMPORTED_KEY = 'order-sheet-last-imported-clipboard';
 
 const $ = selector => document.querySelector(selector);
@@ -40,7 +41,7 @@ function setStatus(state, message) {
 
 function markAwaiting() {
   localStorage.setItem(AWAITING_KEY, '1');
-  setStatus('waiting', 'ChatGPTで解析中。回答をコピーして「集計アプリに戻る」を押してください');
+  setStatus('waiting', '専用GPTで解析中。Action成功後はPWAへ戻るだけで結果を取得します');
 }
 
 function clearAwaiting() {
@@ -49,6 +50,14 @@ function clearAwaiting() {
 
 function isAwaiting() {
   return localStorage.getItem(AWAITING_KEY) === '1';
+}
+
+function isActionAwaiting() {
+  try {
+    return Boolean(JSON.parse(localStorage.getItem(ACTION_AWAITING_KEY) || '{}').scanId);
+  } catch {
+    return false;
+  }
 }
 
 function cameFromChatGPT() {
@@ -93,25 +102,26 @@ async function readClipboardAndImport({ silent = false } = {}) {
     const clean = cleanJsonText(text);
     const lastImported = localStorage.getItem(LAST_IMPORTED_KEY) || '';
     if (!clean || clean === lastImported || !looksLikeAnalysisJson(clean)) {
-      if (!silent) setStatus('ready', 'ChatGPTの回答をコピーしてから、もう一度このボタンを押してください');
+      if (!silent) setStatus('ready', 'Action失敗時はGPTのJSON回答をコピーしてから、もう一度このボタンを押してください');
       return false;
     }
     return importText(clean, 'clipboard');
   } catch {
-    if (!silent) setStatus('ready', '回答をコピー済みなら「コピー結果を取り込む」を1回押してください');
+    if (!silent) setStatus('ready', 'Action失敗時、回答をコピー済みなら「コピー結果を取り込む」を1回押してください');
     return false;
   }
 }
 
 let resumeTimer = null;
 function tryAutoImportOnReturn({ force = false } = {}) {
+  if (isActionAwaiting()) return;
   if (!force && !isAwaiting()) return;
   clearTimeout(resumeTimer);
   resumeTimer = setTimeout(async () => {
-    setStatus('checking', 'ChatGPTから戻りました。コピー済みの回答を確認しています…');
+    setStatus('checking', 'コピー済みのフォールバック結果を確認しています…');
     const imported = await readClipboardAndImport({ silent: true });
     if (!imported && (isAwaiting() || force)) {
-      setStatus('ready', '自動取得が止められました。下のボタンを1回押せば取り込めます');
+      setStatus('ready', 'Action結果が無い場合は、GPTのJSON回答をコピーして下のボタンから取り込めます');
       $('#returnFlowCard')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, 350);
@@ -145,11 +155,13 @@ function setup() {
     if (looksLikeAnalysisJson(text)) importText(text, 'paste');
   });
 
-  if (cameFromChatGPT()) {
-    setStatus('checking', 'ChatGPTから戻りました。結果を自動取得しています…');
+  if (isActionAwaiting()) {
+    setStatus('checking', 'Action結果を待っています。専用GPTで解析後、PWAへ戻ると自動取得します');
+  } else if (cameFromChatGPT()) {
+    setStatus('checking', 'ChatGPTから戻りました。フォールバック結果を確認しています…');
     tryAutoImportOnReturn({ force: true });
   } else if (isAwaiting()) {
-    setStatus('ready', '回答をコピーしたら、ChatGPT内の「集計アプリに戻る」を押してください');
+    setStatus('ready', 'Action失敗時はGPTのJSON回答をコピーしてPWAへ戻ってください');
   }
 }
 

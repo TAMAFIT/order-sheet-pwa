@@ -1,5 +1,6 @@
 import { makeAnalysisPrompt, parseAnalysisPayload } from './lib.js';
 import { ensureActiveScan, getActiveScanId } from './scan-session.js';
+import { CUSTOM_GPT_URL } from './runtime-config.js';
 import './action-return.js';
 
 export function productsForPrompt(db) {
@@ -134,39 +135,51 @@ async function buildBundledShareFiles(files, scanId) {
   return bundled;
 }
 
+function downloadPreparedFile(file) {
+  const url = URL.createObjectURL(file);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = file.name;
+  anchor.rel = 'noopener';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+function openDedicatedCustomGpt() {
+  window.location.assign(CUSTOM_GPT_URL);
+}
+
 export async function shareToChatGPT(files, prompt) {
   const sourceFiles = Array.from(files || []);
   const scanId = getActiveScanId() || ensureActiveScan().scanId;
+  let bundledFiles = [];
 
-  if (navigator.share && sourceFiles.length) {
+  try {
+    if (sourceFiles.length) bundledFiles = await buildBundledShareFiles(sourceFiles, scanId);
+  } catch (error) {
+    console.warn('Bundled share image failed; opening the dedicated GPT with the original image as manual fallback.', error);
+  }
+
+  try { await navigator.clipboard?.writeText?.(prompt); } catch {}
+
+  if (bundledFiles.length) {
     try {
-      const bundledFiles = await buildBundledShareFiles(sourceFiles, scanId);
-      const canShareBundled = !navigator.canShare || navigator.canShare({ files: bundledFiles });
-      if (canShareBundled) {
-        try { await navigator.clipboard?.writeText?.(prompt); } catch {}
-        await navigator.share({
-          title: `注文票を解析 ${scanId.slice(0, 8)}`,
-          files: bundledFiles
-        });
-        return { method: 'share', bundled: true, scanId };
-      }
+      bundledFiles.forEach(downloadPreparedFile);
     } catch (error) {
-      console.warn('Bundled share image failed; falling back to normal share.', error);
+      console.warn('Prepared-image download failed. The user can attach the original photo manually.', error);
     }
   }
 
-  if (navigator.share && (!sourceFiles.length || !navigator.canShare || navigator.canShare({ files: sourceFiles }))) {
-    await navigator.share({
-      title: `注文票を解析 ${scanId.slice(0, 8)}`,
-      text: prompt,
-      ...(sourceFiles.length ? { files: sourceFiles } : {})
-    });
-    return { method: 'share', bundled: false, scanId };
-  }
-
-  await navigator.clipboard.writeText(prompt);
-  window.open('https://chatgpt.com/', '_blank', 'noopener,noreferrer');
-  return { method: 'clipboard', bundled: false, scanId };
+  openDedicatedCustomGpt();
+  return {
+    method: 'custom-gpt',
+    bundled: bundledFiles.length > 0,
+    preparedFileCount: bundledFiles.length,
+    scanId,
+    customGptUrl: CUSTOM_GPT_URL
+  };
 }
 
 async function fileToDataUrl(file) {
