@@ -1,44 +1,30 @@
-import { makeAnalysisPrompt, parseAnalysisPayload } from './lib.js';
+import { parseAnalysisPayload } from './lib.js';
 import { ensureActiveScan, getActiveScanId } from './scan-session.js';
 import { CUSTOM_GPT_URL } from './runtime-config.js';
+import { normalizeQuarterTurns, portraitRotationFor, rotatedSize } from './image-orientation-core.js';
 import './capture-guard.js';
 import './action-return.js';
-import './handoff-ui.js';
 
-export function productsForPrompt(db) {
-  return db.products.map(product => ({
-    id: product.id,
-    canonicalName: product.canonicalName,
-    aliases: db.aliases.filter(a => a.productId === product.id).map(a => a.alias)
-  }));
+let manualRotationQuarterTurns = 0;
+let preparedCache = { key: '', promise: null };
+
+export function setShareImageRotation(quarterTurns = 0) {
+  manualRotationQuarterTurns = normalizeQuarterTurns(quarterTurns);
+  preparedCache = { key: '', promise: null };
+  return manualRotationQuarterTurns;
 }
 
-export function buildPrompt(db) {
+export function getShareImageRotation() {
+  return manualRotationQuarterTurns;
+}
+
+export function buildPrompt() {
   const scanId = ensureActiveScan().scanId;
-  const base = makeAnalysisPrompt(productsForPrompt(db), '');
-  return `${base}\n\nSCAN_ID: ${scanId}\nこのGPTに submitScanResult Action がある場合は、解析完了後に必ず同じSCAN_IDでActionを実行して結果を保存してください。Actionが使えない・失敗・拒否された場合は、上記JSONだけを返してください。`;
-}
-
-function embeddedSharePrompt(scanId) {
   return [
-    'AIへの指示（この上部は注文内容ではありません）',
     `SCAN_ID: ${scanId}`,
-    '下の手書き注文票を、紙の上から順番に1明細ずつ読み取ってください。',
-    '・同じ商品でも統合・合算しない',
-    '・orderを1,2,3...で付ける',
-    '・施設/見出し→place、時間→time、個人名→person',
-    '・商品名→name、注文数量→quantity',
-    '・取消線は cancelled=true',
-    '・「2個入」「2L」など商品名中の数字と注文数量を混同しない',
-    '・丸で囲まれた数字は注文数量',
-    '・読めない場合は confidence を下げる',
-    '・同じ商品に見えてもこの段階では統合しない',
-    '・このGPTに submitScanResult Action がある場合、解析後に必ず実行する',
-    '・Actionへ渡す scan_id は上記SCAN_IDと完全一致させる',
-    '・Actionへ渡すitemsは下記JSON形式と同じ構造にする',
-    '・Actionが無い/失敗/拒否された場合は、最初にJSONコードブロック1つだけ返す',
-    '{"scan_id":"SCAN_ID","status":"completed","items":[{"order":1,"place":"","time":"","person":"","name":"商品名","quantity":2,"confidence":0.92,"cancelled":false,"note":""}]}',
-    '↓ ここから下が注文票です ↓'
+    '添付した手書き注文票を、このGPTに設定済みの注文票解析ルールで解析してください。',
+    '解析完了後は同じSCAN_IDで submitScanResult Action を1回実行してください。',
+    'Actionの許可が表示されたら、ユーザーが許可するまで待ってください。'
   ].join('\n');
 }
 
@@ -58,73 +44,64 @@ function loadImage(file) {
   });
 }
 
-function wrapLines(ctx, text, maxWidth) {
-  const lines = [];
-  for (const paragraph of String(text).split('\n')) {
-    if (!paragraph) {
-      lines.push('');
-      continue;
-    }
-    let current = '';
-    for (const char of paragraph) {
-      const next = current + char;
-      if (current && ctx.measureText(next).width > maxWidth) {
-        lines.push(current);
-        current = char;
-      } else {
-        current = next;
-      }
-    }
-    if (current) lines.push(current);
+function drawOrientedImage(ctx, img, x, y, width, height, quarterTurns) {
+  const turns = normalizeQuarterTurns(quarterTurns);
+  ctx.save();
+  if (turns === 0) {
+    ctx.drawImage(img, x, y, width, height);
+  } else if (turns === 1) {
+    ctx.translate(x + height, y);
+    ctx.rotate(Math.PI / 2);
+    ctx.drawImage(img, 0, 0, width, height);
+  } else if (turns === 2) {
+    ctx.translate(x + width, y + height);
+    ctx.rotate(Math.PI);
+    ctx.drawImage(img, 0, 0, width, height);
+  } else {
+    ctx.translate(x, y + width);
+    ctx.rotate(-Math.PI / 2);
+    ctx.drawImage(img, 0, 0, width, height);
   }
-  return lines;
+  ctx.restore();
 }
 
-async function makePromptEmbeddedImage(file, index, scanId) {
+async function makeScanTaggedImage(file, index, scanId) {
   const img = await loadImage(file);
-  const maxImageWidth = 2400;
   const sourceWidth = img.naturalWidth || img.width;
   const sourceHeight = img.naturalHeight || img.height;
-  const scale = Math.min(1, maxImageWidth / sourceWidth);
-  const imageWidth = Math.max(900, Math.round(sourceWidth * scale));
-  const imageHeight = Math.round(sourceHeight * (imageWidth / sourceWidth));
+  const quarterTurns = portraitRotationFor(sourceWidth, sourceHeight, manualRotationQuarterTurns);
+  const oriented = rotatedSize(sourceWidth, sourceHeight, quarterTurns);
+  const maxOutputWidth = 2200;
+  const scale = Math.min(1, maxOutputWidth / Math.max(1, oriented.width));
+  const baseWidth = Math.max(1, Math.round(sourceWidth * scale));
+  const baseHeight = Math.max(1, Math.round(sourceHeight * scale));
+  const outputSize = rotatedSize(baseWidth, baseHeight, quarterTurns);
+  const imageWidth = Math.max(1, Math.round(outputSize.width));
+  const imageHeight = Math.max(1, Math.round(outputSize.height));
+  const fontSize = Math.max(22, Math.min(34, Math.round(imageWidth * 0.025)));
+  const headerHeight = Math.round(fontSize * 3.25);
 
   const canvas = document.createElement('canvas');
+  canvas.width = imageWidth;
+  canvas.height = headerHeight + imageHeight;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('この端末では共有用画像を作成できません');
 
-  const fontSize = Math.max(26, Math.min(46, Math.round(imageWidth * 0.019)));
-  const lineHeight = Math.round(fontSize * 1.4);
-  const sidePad = Math.round(imageWidth * 0.035);
-  const topPad = Math.round(fontSize * 0.8);
-  const textWidth = imageWidth - sidePad * 2;
-
-  ctx.font = `700 ${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, "Noto Sans JP", sans-serif`;
-  const lines = wrapLines(ctx, embeddedSharePrompt(scanId), textWidth);
-  const headerHeight = topPad * 2 + lines.length * lineHeight;
-
-  canvas.width = imageWidth;
-  canvas.height = headerHeight + imageHeight;
-
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, canvas.width, headerHeight);
-  ctx.font = `700 ${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, "Noto Sans JP", sans-serif`;
+  ctx.fillStyle = '#2e6b45';
+  ctx.font = `800 ${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, "Noto Sans JP", sans-serif`;
   ctx.textBaseline = 'top';
+  ctx.fillText('注文票 解析用', Math.round(fontSize * 0.8), Math.round(fontSize * 0.45));
+  ctx.fillStyle = '#111111';
+  ctx.font = `700 ${Math.max(18, Math.round(fontSize * 0.72))}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  ctx.fillText(`SCAN_ID: ${scanId}`, Math.round(fontSize * 0.8), Math.round(fontSize * 1.75));
 
-  let y = topPad;
-  lines.forEach((line, lineIndex) => {
-    if (lineIndex === 0 || line.startsWith('SCAN_ID:') || line.startsWith('↓')) ctx.fillStyle = '#0b5d35';
-    else ctx.fillStyle = '#111111';
-    ctx.fillText(line, sidePad, y);
-    y += lineHeight;
-  });
-
-  ctx.drawImage(img, 0, headerHeight, imageWidth, imageHeight);
+  drawOrientedImage(ctx, img, 0, headerHeight, baseWidth, baseHeight, quarterTurns);
 
   const blob = await new Promise((resolve, reject) => {
     canvas.toBlob(result => result ? resolve(result) : reject(new Error('共有用画像の生成に失敗しました')), 'image/jpeg', 0.94);
   });
-
   return new File([blob], `order-sheet-${scanId.slice(0, 8)}-${index + 1}.jpg`, { type: 'image/jpeg' });
 }
 
@@ -132,21 +109,20 @@ async function buildBundledShareFiles(files, scanId) {
   const sourceFiles = Array.from(files || []);
   const bundled = [];
   for (let i = 0; i < sourceFiles.length; i += 1) {
-    bundled.push(await makePromptEmbeddedImage(sourceFiles[i], i, scanId));
+    bundled.push(await makeScanTaggedImage(sourceFiles[i], i, scanId));
   }
   return bundled;
 }
 
-let preparedCache = { scanId: '', promise: null };
-
 function prepareBundledFiles(scanId, files) {
   const sourceFiles = Array.from(files || []);
   if (!scanId || !sourceFiles.length) return null;
+  const key = `${scanId}:${manualRotationQuarterTurns}:${sourceFiles.length}`;
   const promise = buildBundledShareFiles(sourceFiles, scanId).catch(error => {
     console.warn('Prepared image generation failed.', error);
     return [];
   });
-  preparedCache = { scanId, promise };
+  preparedCache = { key, promise };
   return promise;
 }
 
@@ -154,14 +130,18 @@ if (typeof document !== 'undefined') {
   globalThis.addEventListener('order-sheet-scan-changed', event => {
     const scan = event.detail;
     if (scan?.status !== 'captured' || !scan.scanId) return;
+    manualRotationQuarterTurns = 0;
+    preparedCache = { key: '', promise: null };
     const files = document.querySelector('#imageInput')?.files;
     if (files?.length) prepareBundledFiles(scan.scanId, files);
   });
 }
 
 async function preparedFilesFor(scanId, files) {
-  if (preparedCache.scanId === scanId && preparedCache.promise) return preparedCache.promise;
-  return prepareBundledFiles(scanId, files) || [];
+  const sourceFiles = Array.from(files || []);
+  const key = `${scanId}:${manualRotationQuarterTurns}:${sourceFiles.length}`;
+  if (preparedCache.key === key && preparedCache.promise) return preparedCache.promise;
+  return prepareBundledFiles(scanId, sourceFiles) || [];
 }
 
 async function toPngBlob(file) {
@@ -222,7 +202,6 @@ export async function shareToChatGPT(files, prompt) {
 
   let imageCopied = false;
   let filesSaved = false;
-
   if (bundledFiles.length === 1) imageCopied = await copyPreparedImage(bundledFiles[0]);
 
   if (!imageCopied && bundledFiles.length) {
@@ -247,6 +226,7 @@ export async function shareToChatGPT(files, prompt) {
     filesSaved,
     preparedFileCount: bundledFiles.length,
     scanId,
+    rotationQuarterTurns: manualRotationQuarterTurns,
     customGptUrl: CUSTOM_GPT_URL
   };
 }
