@@ -75,6 +75,8 @@ async function makePromptEmbeddedImage(file, index) {
 
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('この端末では共有用画像を作成できません');
+
   const fontSize = Math.max(30, Math.min(54, Math.round(imageWidth * 0.022)));
   const lineHeight = Math.round(fontSize * 1.46);
   const sidePad = Math.round(imageWidth * 0.035);
@@ -90,14 +92,12 @@ async function makePromptEmbeddedImage(file, index) {
 
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, canvas.width, headerHeight);
-  ctx.fillStyle = '#111111';
   ctx.font = `700 ${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, "Noto Sans JP", sans-serif`;
   ctx.textBaseline = 'top';
 
   let y = topPad;
   lines.forEach((line, lineIndex) => {
-    if (lineIndex === 0) ctx.fillStyle = '#0b5d35';
-    else if (line.startsWith('↓')) ctx.fillStyle = '#0b5d35';
+    if (lineIndex === 0 || line.startsWith('↓')) ctx.fillStyle = '#0b5d35';
     else ctx.fillStyle = '#111111';
     ctx.fillText(line, sidePad, y);
     y += lineHeight;
@@ -129,12 +129,14 @@ export async function shareToChatGPT(files, prompt) {
       const bundledFiles = await buildBundledShareFiles(sourceFiles);
       const canShareBundled = !navigator.canShare || navigator.canShare({ files: bundledFiles });
       if (canShareBundled) {
+        // Keep the full prompt in the clipboard as a fallback, but do not depend on
+        // Android/ChatGPT preserving text+file in the same share intent.
         try { await navigator.clipboard?.writeText?.(prompt); } catch {}
         await navigator.share({
           title: '注文票を解析',
           files: bundledFiles
         });
-        return { method: 'share-bundled-image', bundled: true };
+        return { method: 'share', bundled: true };
       }
     } catch (error) {
       console.warn('Bundled share image failed; falling back to normal share.', error);
