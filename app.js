@@ -1,6 +1,7 @@
 import { OrderDb } from './db.js';
 import { aggregateRecognitions, parseAnalysisPayload, rankCandidates, resolveRecognitionItem, uid } from './lib.js';
 import { analyzeWithBackend, buildPrompt, SAMPLE_ANALYSIS, shareToChatGPT } from './ai.js';
+import { insertRecognitionAfter, removeRecognition, restoreRecognition } from './review-edit-core.js';
 
 const db = new OrderDb();
 const $ = selector => document.querySelector(selector);
@@ -26,11 +27,33 @@ function escapeHtml(value = '') {
 
 function toast(message, type = 'info') {
   const el = $('#toast');
-  el.textContent = message;
+  el.classList.remove('has-action');
+  el.replaceChildren(document.createTextNode(message));
   el.dataset.type = type;
   el.classList.add('show');
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => el.classList.remove('show'), 2800);
+}
+
+function toastWithUndo(message, onUndo) {
+  const el = $('#toast');
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'toast-undo';
+  button.textContent = '元に戻す';
+  el.replaceChildren(document.createTextNode(message), button);
+  el.dataset.type = 'info';
+  el.classList.add('show', 'has-action');
+  clearTimeout(toast.timer);
+  const dismiss = () => {
+    el.classList.remove('show', 'has-action');
+  };
+  button.addEventListener('click', () => {
+    clearTimeout(toast.timer);
+    dismiss();
+    onUndo?.();
+  }, { once: true });
+  toast.timer = setTimeout(dismiss, 5200);
 }
 
 function formatConfidence(value = 0) {
@@ -206,6 +229,7 @@ function markDirty(item) {
 function candidateHint(item) {
   if (item.status === 'confirmed') return '<span class="review-state confirmed">確定済み</span>';
   if (item.cancelled) return '<span class="review-state cancelled">取消予定</span>';
+  if (item.manual && !item.rawName.trim()) return '<span class="review-state new">入力待ち</span>';
   const score = Number(item.candidates?.[0]?.score || 0);
   if (score >= 0.93) return '<span class="review-state matched">既存商品とほぼ一致</span>';
   if (score >= 0.64) return '<span class="review-state candidate">似た商品候補あり</span>';
@@ -244,16 +268,8 @@ function renderEditPanel(item) {
   return `<div class="review-editor">
     <label class="editor-field">
       <span>商品名</span>
-      <input class="edit-name" data-id="${item.id}" value="${escapeHtml(item.rawName)}" autocomplete="off">
+      <input class="edit-name" data-id="${item.id}" value="${escapeHtml(item.rawName)}" autocomplete="off" placeholder="商品名を入力">
     </label>
-    <div class="editor-field">
-      <span>数量</span>
-      <div class="qty-editor">
-        <button type="button" data-action="qty-minus" data-id="${item.id}" aria-label="1減らす">−</button>
-        <input class="edit-qty" data-id="${item.id}" type="number" min="0" step="1" value="${item.quantity}">
-        <button type="button" data-action="qty-plus" data-id="${item.id}" aria-label="1増やす">＋</button>
-      </div>
-    </div>
     <div class="candidate-section">
       <div class="editor-label">既存商品と統合する場合</div>
       <div class="candidate-chips">${candidateHtml}</div>
@@ -288,26 +304,33 @@ function renderReview() {
   }
 
   let previousGroup = null;
-  list.innerHTML = state.recognitions.map(item => {
+  const rows = state.recognitions.map(item => {
     const groupKey = reviewGroupKey(item);
     const groupHeader = groupKey !== previousGroup ? reviewGroupTitle(item) : '';
     previousGroup = groupKey;
     const expanded = state.expanded.has(item.id);
     const product = productById(item.matchedProductId);
-    const displayName = product && item.status === 'confirmed' ? product.canonicalName : item.rawName;
+    const displayName = (product && item.status === 'confirmed' ? product.canonicalName : item.rawName) || '商品名を入力';
     const subLabel = linkedProductLabel(item);
-    return `${groupHeader}<article class="review-line ${item.status === 'confirmed' ? 'is-confirmed' : ''} ${item.cancelled ? 'is-cancelled' : ''}" data-id="${item.id}">
+    const secondary = subLabel || (item.manual ? '手動追加' : `AI ${formatConfidence(item.confidence)}`);
+    return `${groupHeader}<article class="review-line ${item.status === 'confirmed' ? 'is-confirmed' : ''} ${item.cancelled ? 'is-cancelled' : ''} ${item.manual ? 'is-manual' : ''}" data-id="${item.id}">
       <div class="review-line-main">
         <span class="paper-order">${item.order || ''}</span>
         <div class="review-line-text">
-          <strong>${escapeHtml(displayName)}</strong>
-          <div class="review-line-sub">${subLabel || `AI ${formatConfidence(item.confidence)}`}</div>
+          <strong class="${item.rawName ? '' : 'placeholder-name'}">${escapeHtml(displayName)}</strong>
+          <div class="review-line-sub">${secondary}</div>
         </div>
-        <div class="review-line-qty">×${item.quantity}</div>
+        <div class="quick-qty" aria-label="数量 ${item.quantity}">
+          <button type="button" data-action="qty-minus" data-id="${item.id}" aria-label="数量を1減らす" ${Number(item.quantity) <= 0 ? 'disabled' : ''}>−</button>
+          <strong>${item.quantity}</strong>
+          <button type="button" data-action="qty-plus" data-id="${item.id}" aria-label="数量を1増やす">＋</button>
+        </div>
       </div>
       <div class="review-line-actions">
         ${candidateHint(item)}
+        <button type="button" class="line-tool-btn add-line-btn" data-action="insert-after" data-id="${item.id}">＋ 下に追加</button>
         <button type="button" class="edit-toggle" data-action="toggle-edit" data-id="${item.id}">${expanded ? '閉じる' : '編集'}</button>
+        <button type="button" class="line-tool-btn delete-line-btn" data-action="delete" data-id="${item.id}">削除</button>
         ${item.status === 'confirmed'
           ? '<span class="confirmed-mark" aria-label="確定済み">✓</span>'
           : `<button type="button" class="confirm-line-btn" data-action="confirm" data-id="${item.id}">確定</button>`}
@@ -315,6 +338,8 @@ function renderReview() {
       ${expanded ? renderEditPanel(item) : ''}
     </article>`;
   }).join('');
+  const lastItem = state.recognitions.at(-1);
+  list.innerHTML = `${rows}<button type="button" class="append-item-btn" data-action="insert-after" data-id="${lastItem.id}">＋ 最後に商品を追加</button>`;
 
   const finishButton = $('#finishReviewBtn');
   finishButton.disabled = confirmed !== total;
@@ -334,7 +359,6 @@ function selectCandidate(item, productId) {
   markDirty(item);
   item.matchedProductId = productId;
   item.forceNew = false;
-  renderReview();
   state.expanded.add(item.id);
   renderReview();
   toast(`「${product.canonicalName}」へ統合する設定にしました`);
@@ -345,10 +369,59 @@ function setNewProduct(item) {
   markDirty(item);
   item.matchedProductId = null;
   item.forceNew = true;
-  renderReview();
   state.expanded.add(item.id);
   renderReview();
   toast('この表記を新商品として登録する設定にしました');
+}
+
+function focusRecognitionName(id) {
+  requestAnimationFrame(() => {
+    const input = document.querySelector(`.edit-name[data-id="${id}"]`);
+    input?.focus();
+  });
+}
+
+function addRecognitionAfter(item) {
+  if (!item) return;
+  const newItem = resolveRecognitionItem({
+    order: Number(item.order || 0) + 0.5,
+    place: item.place,
+    time: item.time,
+    person: item.person,
+    name: '',
+    quantity: 1,
+    confidence: 0,
+    cancelled: false,
+    note: ''
+  }, db.data, currentWriterTag());
+  newItem.manual = true;
+  newItem.confidence = 0;
+  newItem.matchedProductId = null;
+  newItem.suggestedProductId = null;
+  newItem.suggestedScore = 0;
+  newItem.forceNew = false;
+  newItem.candidates = [];
+  insertRecognitionAfter(state.recognitions, item.id, newItem);
+  state.expanded.add(newItem.id);
+  $('#resultArea').hidden = true;
+  renderReview();
+  focusRecognitionName(newItem.id);
+  toast('この下に商品を追加しました');
+}
+
+function deleteRecognition(item) {
+  if (!item) return;
+  const snapshot = removeRecognition(state.recognitions, item.id);
+  if (!snapshot) return;
+  state.expanded.delete(item.id);
+  $('#resultArea').hidden = true;
+  renderReview();
+  const label = item.rawName || '追加中の商品';
+  toastWithUndo(`「${label}」を削除しました`, () => {
+    restoreRecognition(state.recognitions, snapshot);
+    renderReview();
+    toast('削除を元に戻しました');
+  });
 }
 
 function confirmRecognition(item) {
@@ -441,7 +514,6 @@ function handleReviewClick(event) {
   } else if (action === 'toggle-cancel') {
     markDirty(item);
     item.cancelled = !item.cancelled;
-    renderReview();
     state.expanded.add(item.id);
     renderReview();
   } else if (action === 'qty-minus' || action === 'qty-plus') {
@@ -449,8 +521,10 @@ function handleReviewClick(event) {
     const delta = action === 'qty-plus' ? 1 : -1;
     item.quantity = Math.max(0, Number(item.quantity || 0) + delta);
     renderReview();
-    state.expanded.add(item.id);
-    renderReview();
+  } else if (action === 'insert-after') {
+    addRecognitionAfter(item);
+  } else if (action === 'delete') {
+    deleteRecognition(item);
   } else if (action === 'confirm') {
     confirmRecognition(item);
   }
