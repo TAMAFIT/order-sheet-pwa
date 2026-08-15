@@ -6,6 +6,7 @@ import { getActiveScanId } from './scan-session.js';
 import { insertRecognitionAfter, removeRecognition, restoreRecognition } from './review-edit-core.js';
 import { buildSessionSnapshot, cloneValue, findResumeSession, groupRecognitions, recentRestorableSessions } from './session-history-core.js';
 import { AeonCatalogDb } from './catalog-db.js';
+import { setupReviewReorder } from './review-reorder-v18.js';
 
 const db = new OrderDb();
 const catalogDb = new AeonCatalogDb();
@@ -1084,6 +1085,7 @@ function init() {
   renderHistory();
   enrichPromptText();
   setupEvents();
+  setupReviewReorder(() => state.recognitions);
   setupInstall();
   registerServiceWorker();
   void initCatalog().then(() => hydratePendingCatalogCandidates()).catch(() => {});
