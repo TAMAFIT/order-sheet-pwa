@@ -77,6 +77,10 @@
   opacity: .72;
 }
 
+.review-line.is-manual {
+  border-style: dashed;
+}
+
 .review-line-main {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr) auto;
@@ -110,6 +114,11 @@
   line-height: 1.4;
 }
 
+.review-line-text .placeholder-name {
+  color: #8a938d;
+  font-weight: 700;
+}
+
 .review-line-sub {
   margin-top: 2px;
   overflow: hidden;
@@ -119,15 +128,46 @@
   font-size: 11px;
 }
 
-.review-line-qty {
-  padding-left: 6px;
-  font-size: 16px;
+.quick-qty {
+  display: grid;
+  grid-template-columns: 36px 34px 36px;
+  align-items: center;
+  gap: 4px;
+}
+
+.quick-qty button {
+  width: 36px;
+  height: 36px;
+  border: 1px solid #d3dbd5;
+  border-radius: 10px;
+  background: #f8faf8;
+  color: #26382c;
+  font-size: 20px;
   font-weight: 800;
-  white-space: nowrap;
+  line-height: 1;
+}
+
+.quick-qty button:active:not(:disabled) {
+  background: #e7f0e9;
+  transform: translateY(1px);
+}
+
+.quick-qty button:disabled {
+  opacity: .34;
+  cursor: default;
+}
+
+.quick-qty strong {
+  min-width: 34px;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
 }
 
 .review-line-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 7px;
   padding: 0 10px 9px 46px;
@@ -165,10 +205,11 @@
 }
 
 .edit-toggle,
-.confirm-line-btn {
+.confirm-line-btn,
+.line-tool-btn {
   min-height: 32px;
   border-radius: 9px;
-  padding: 0 12px;
+  padding: 0 10px;
   border: 1px solid #d6ddd8;
   background: #fff;
   color: #303b34;
@@ -177,10 +218,23 @@
   font-weight: 700;
 }
 
+.add-line-btn {
+  color: #2e6b45;
+  border-color: #bfd2c4;
+  background: #f6faf7;
+}
+
+.delete-line-btn {
+  color: #8a3d3d;
+  border-color: #e3c7c7;
+  background: #fffafa;
+}
+
 .confirm-line-btn {
   border-color: #2e6b45;
   background: #2e6b45;
   color: #fff;
+  padding-inline: 12px;
 }
 
 .confirmed-mark {
@@ -192,6 +246,19 @@
   background: #e9f5ed;
   color: #28633f;
   font-weight: 900;
+}
+
+.append-item-btn {
+  width: 100%;
+  min-height: 42px;
+  margin: 9px 0 4px;
+  border: 1px dashed #a9c0af;
+  border-radius: 11px;
+  background: #f8fbf9;
+  color: #2e6b45;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .review-editor {
@@ -337,6 +404,26 @@
   opacity: .48;
 }
 
+.toast.has-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 14px;
+  pointer-events: auto;
+}
+
+.toast-undo {
+  border: 0;
+  border-radius: 999px;
+  background: #fff;
+  color: #214c31;
+  padding: 6px 9px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
 @media (max-width: 520px) {
   .review-line-main {
     grid-template-columns: 25px minmax(0, 1fr) auto;
@@ -344,15 +431,38 @@
     padding-inline: 8px;
   }
 
+  .quick-qty {
+    grid-template-columns: 33px 28px 33px;
+    gap: 3px;
+  }
+
+  .quick-qty button {
+    width: 33px;
+    height: 34px;
+  }
+
+  .quick-qty strong {
+    min-width: 28px;
+    font-size: 17px;
+  }
+
   .review-line-actions {
     padding-left: 39px;
     padding-right: 8px;
+    gap: 6px;
   }
 
   .review-state {
-    max-width: 42vw;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .line-tool-btn,
+  .edit-toggle,
+  .confirm-line-btn {
+    min-height: 34px;
+    padding-inline: 9px;
   }
 
   .candidate-chip {
