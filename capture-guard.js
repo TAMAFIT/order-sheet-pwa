@@ -43,15 +43,29 @@ function setup() {
   let pickerOpen = false;
   let releaseTimer = null;
 
-  input.addEventListener('click', () => {
+  const markPickerOpen = () => {
     pickerOpen = true;
     clearTimeout(releaseTimer);
     clearOldReturnState();
-  }, true);
+  };
 
-  input.addEventListener('change', event => {
+  const markPickerClosed = () => {
     pickerOpen = false;
     clearTimeout(releaseTimer);
+  };
+
+  globalThis.addEventListener('order-sheet-picker-open', markPickerOpen);
+  globalThis.addEventListener('order-sheet-picker-close', markPickerClosed);
+
+  input.addEventListener('click', markPickerOpen, true);
+  input.addEventListener('change', event => {
+    markPickerClosed();
+    if (event.target.files?.length) clearOldAnalysisUi();
+  }, true);
+
+  document.addEventListener('change', event => {
+    if (!event.target?.matches?.('[data-capture-picker]')) return;
+    markPickerClosed();
     if (event.target.files?.length) clearOldAnalysisUi();
   }, true);
 

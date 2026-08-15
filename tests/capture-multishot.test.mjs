@@ -4,6 +4,7 @@ import {
   CAPTURE_MODE_SINGLE,
   CAPTURE_MODE_SPLIT,
   acceptedIncomingCount,
+  captureModeUi,
   nextSplitSlot,
   normalizeCaptureMode,
   splitStatus
@@ -20,6 +21,19 @@ test('split mode advances top then bottom then complete', () => {
   assert.equal(nextSplitSlot(2), 'complete');
   assert.equal(splitStatus(1).complete, false);
   assert.equal(splitStatus(2).complete, true);
+});
+
+test('single mode copy never contains split-only upper/lower wording', () => {
+  const ui = captureModeUi(CAPTURE_MODE_SINGLE, 0);
+  assert.equal(ui.split, false);
+  assert.equal(ui.help, '注文票全体を1枚で撮影します。');
+  assert.equal(/[上下]半分/.test(ui.help), false);
+});
+
+test('second split capture becomes available after the top photo exists', () => {
+  assert.equal(captureModeUi(CAPTURE_MODE_SPLIT, 0).bottomEnabled, false);
+  assert.equal(captureModeUi(CAPTURE_MODE_SPLIT, 1).bottomEnabled, true);
+  assert.equal(captureModeUi(CAPTURE_MODE_SPLIT, 1).status, '② 下半分を撮影してください');
 });
 
 test('single mode accepts only one image', () => {
