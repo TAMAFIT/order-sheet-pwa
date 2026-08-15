@@ -62,6 +62,10 @@ if (sink && legacyBox) {
     }
   }
 
+  function markPickerOpen() {
+    sink.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  }
+
   function renderSplitParts() {
     revokePartUrls();
     partPreviews.innerHTML = splitParts.map((file, index) => {
@@ -214,12 +218,14 @@ if (sink && legacyBox) {
   cameraBtn.addEventListener('click', () => {
     if (mode === CAPTURE_MODE_SPLIT && splitParts.length >= 2) setMode(CAPTURE_MODE_SPLIT);
     cameraInput.value = '';
+    markPickerOpen();
     cameraInput.click();
   });
   galleryBtn.addEventListener('click', () => {
     if (mode === CAPTURE_MODE_SPLIT && splitParts.length >= 2) setMode(CAPTURE_MODE_SPLIT);
     galleryInput.value = '';
     galleryInput.multiple = mode === CAPTURE_MODE_SPLIT;
+    markPickerOpen();
     galleryInput.click();
   });
   cameraInput.addEventListener('change', event => void acceptFiles(event.target.files));
