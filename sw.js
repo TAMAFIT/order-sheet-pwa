@@ -1,4 +1,4 @@
-const CACHE = 'order-sheet-pwa-v12';
+const CACHE = 'order-sheet-pwa-v13';
 const ASSETS = [
   './',
   './index.html',
@@ -6,7 +6,11 @@ const ASSETS = [
   './chatgpt-flow.css',
   './workflow-v11.css',
   './review-v2.css',
+  './catalog-v13.css',
   './app.js',
+  './catalog-core.js',
+  './catalog-db.js',
+  './catalog/aeon-ayagawa/manifest.json',
   './review-edit-core.js',
   './session-history-core.js',
   './image-orientation-core.js',
@@ -49,7 +53,8 @@ self.addEventListener('fetch', event => {
   event.respondWith(
     fetch(networkRequest)
       .then(response => {
-        if (sameOrigin && response.ok) {
+        const isCatalogShard = sameOrigin && requestUrl.pathname.includes('/catalog/aeon-ayagawa/part-');
+        if (sameOrigin && response.ok && !isCatalogShard) {
           const copy = response.clone();
           caches.open(CACHE).then(cache => cache.put(event.request, copy));
         }

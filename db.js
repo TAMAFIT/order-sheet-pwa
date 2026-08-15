@@ -141,17 +141,29 @@ export class OrderDb {
     this.save();
   }
 
-  addProduct(canonicalName, location = '') {
+  addProduct(canonicalName, location = '', options = {}) {
     const clean = String(canonicalName || '').trim();
     if (!clean) throw new Error('商品名が空です');
-    const same = this.data.products.find(p => normalizeText(p.canonicalName) === normalizeText(clean));
-    if (same) return same;
+    const jan = String(options.jan || '').trim();
+    let same = jan ? this.data.products.find(p => String(p.jan || '') === jan) : null;
+    if (!same && jan) same = this.data.products.find(p => !p.jan && normalizeText(p.canonicalName) === normalizeText(clean));
+    if (!same && !jan) same = this.data.products.find(p => normalizeText(p.canonicalName) === normalizeText(clean));
+    if (same) {
+      if (jan && !same.jan) same.jan = jan;
+      if (options.source && !same.source) same.source = options.source;
+      if (options.category && !same.category) same.category = options.category;
+      if (options.catalogVersion) same.catalogVersion = options.catalogVersion;
+      same.updatedAt = now();
+      this.save();
+      return same;
+    }
     const product = {
       id: uid('product'), canonicalName: clean, location: location || '', active: true,
-      createdAt: now(), updatedAt: now()
+      jan: jan || '', source: options.source || 'manual', category: options.category || '',
+      catalogVersion: options.catalogVersion || '', createdAt: now(), updatedAt: now()
     };
     this.data.products.push(product);
-    this.addAlias(product.id, clean, { source: 'canonical', verified: true, persist: false });
+    this.addAlias(product.id, clean, { source: options.source === 'aeon-ayagawa' ? 'aeon-catalog' : 'canonical', verified: true, persist: false });
     this.save();
     return product;
   }

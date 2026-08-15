@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="./styles.css">
   <link rel="stylesheet" href="./chatgpt-flow.css">
   <link rel="stylesheet" href="./review-v2.css">
+  <link rel="stylesheet" href="./catalog-v13.css">
 </head>
 <body>
   <main class="app-shell">
@@ -171,6 +172,13 @@
         </div>
       </section>
       <div id="productList"></div>
+      <section class="card catalog-search-card">
+        <span class="eyebrow">AEON AYAGAWA CATALOG</span>
+        <h2>イオン綾川の商品を検索</h2>
+        <p class="card-sub">公開カタログ37,063商品から探せます。選んだ商品だけ学習DBへ登録するので、普段の動作を重くしません。</p>
+        <input id="catalogSearch" type="search" placeholder="例：ブルガリアヨーグルト、牛乳、食パン">
+        <div id="catalogSearchResults" class="catalog-search-results"><div class="empty-mini">2文字以上入力すると検索します</div></div>
+      </section>
     </section>
 
     <section id="tab-data" class="tab-panel">
@@ -186,9 +194,11 @@
       </section>
 
       <section class="card catalog-ready-card">
-        <h2>外部商品カタログ</h2>
-        <p class="card-sub">AEON綾川の商品カタログは、学習DBとは分けて別領域へ保存する設計です。大量の商品を追加しても、日々の訂正履歴を膨らませません。</p>
-        <div class="catalog-count"><strong id="catalogItemCount">0</strong><span>カタログ商品（統合待ち）</span></div>
+        <h2>イオン綾川 商品カタログ</h2>
+        <p class="card-sub">公開カタログは学習DBとは別の端末内領域に保存します。注文確認では学習済み商品を優先し、見つからない時だけイオンの商品候補を出します。</p>
+        <div class="catalog-count"><strong id="catalogItemCount">0</strong><span>カタログ商品</span></div>
+        <div id="catalogStatus" class="catalog-status" data-state="loading">商品カタログを確認しています…</div>
+        <button id="refreshCatalogBtn" class="secondary-btn catalog-refresh-btn" type="button">商品カタログを更新</button>
       </section>
 
       <section class="card advanced-card">
