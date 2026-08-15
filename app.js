@@ -1,7 +1,10 @@
 import { OrderDb } from './db.js';
 import { aggregateRecognitions, parseAnalysisPayload, rankCandidates, resolveRecognitionItem, uid } from './lib.js';
-import { analyzeWithBackend, buildPrompt, SAMPLE_ANALYSIS, shareToChatGPT } from './ai.js';
+import { analyzeWithBackend, buildPrompt, SAMPLE_ANALYSIS, setShareImageRotation, shareToChatGPT } from './ai.js';
+import { restoreActionScan } from './action-return.js';
+import { getActiveScanId } from './scan-session.js';
 import { insertRecognitionAfter, removeRecognition, restoreRecognition } from './review-edit-core.js';
+import { buildSessionSnapshot, cloneValue, findResumeSession, groupRecognitions, recentRestorableSessions } from './session-history-core.js';
 
 const db = new OrderDb();
 const $ = selector => document.querySelector(selector);
@@ -12,7 +15,11 @@ const state = {
   recognitions: [],
   expanded: new Set(),
   sessionId: uid('session'),
+  scanId: '',
+  source: '',
+  rawPayload: '',
   writerTag: '',
+  imageFlip180: false,
   installPrompt: null
 };
 
@@ -45,9 +52,7 @@ function toastWithUndo(message, onUndo) {
   el.dataset.type = 'info';
   el.classList.add('show', 'has-action');
   clearTimeout(toast.timer);
-  const dismiss = () => {
-    el.classList.remove('show', 'has-action');
-  };
+  const dismiss = () => el.classList.remove('show', 'has-action');
   button.addEventListener('click', () => {
     clearTimeout(toast.timer);
     dismiss();
@@ -60,6 +65,14 @@ function formatConfidence(value = 0) {
   return `${Math.round(Number(value || 0) * 100)}%`;
 }
 
+function formatSessionDate(value) {
+  const date = new Date(value || '');
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('ja-JP', {
+    month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'
+  }).format(date);
+}
+
 function setTab(name) {
   $$('.tab-button').forEach(button => button.classList.toggle('active', button.dataset.tab === name));
   $$('.tab-panel').forEach(panel => panel.classList.toggle('active', panel.id === `tab-${name}`));
@@ -70,80 +83,110 @@ function setTab(name) {
 function renderHeaderStats() {
   $('#productCount').textContent = db.data.products.length;
   $('#aliasCount').textContent = db.data.aliases.length;
-  const confirmed = db.data.recognitionHistory.filter(h => h.status === 'confirmed').length;
-  $('#learnedCount').textContent = confirmed;
+  $('#learnedCount').textContent = db.data.recognitionHistory.filter(h => h.status === 'confirmed').length;
 }
 
 function renderFiles() {
   const container = $('#filePreviews');
   if (!state.files.length) {
-    container.innerHTML = '<div class="empty-mini">注文票を撮影または選択してください</div>';
+    container.innerHTML = '<div class="empty-mini">注文票を撮影してください</div>';
+    $('#rotateImageBtn')?.setAttribute('hidden', '');
     return;
   }
   container.innerHTML = state.files.map((file, index) => {
     const url = URL.createObjectURL(file);
-    return `<figure class="preview-card">
-      <img src="${url}" alt="注文票 ${index + 1}">
+    const transform = state.imageFlip180 ? ' style="transform:rotate(180deg)"' : '';
+    return `<figure class="preview-card compact-preview">
+      <img src="${url}" alt="注文票 ${index + 1}"${transform}>
       <figcaption>${escapeHtml(file.name || `画像 ${index + 1}`)}</figcaption>
     </figure>`;
   }).join('');
+  if (state.files.length === 1) $('#rotateImageBtn')?.removeAttribute('hidden');
 }
 
 function setFiles(fileList) {
   state.files = Array.from(fileList || []).filter(file => file.type.startsWith('image/'));
+  state.imageFlip180 = false;
+  setShareImageRotation(0);
   renderFiles();
   $('#selectedCount').textContent = `${state.files.length}枚`;
+  if (state.files.length) {
+    $('#captureCard')?.classList.add('is-complete');
+    setTimeout(() => $('#step2Card')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 180);
+  }
+}
+
+function toggleImageFlip() {
+  if (!state.files.length) return;
+  state.imageFlip180 = !state.imageFlip180;
+  setShareImageRotation(state.imageFlip180 ? 2 : 0);
+  renderFiles();
+  toast(state.imageFlip180 ? '送信画像を180°回転します' : '画像の回転を元に戻しました');
 }
 
 function currentWriterTag() {
-  const tag = $('#writerTag').value.trim();
+  const tag = ($('#writerTag')?.value || '').trim();
   state.writerTag = tag;
   if (tag) db.addWriter(tag);
   return tag;
 }
 
 function enrichPromptText() {
-  const prompt = buildPrompt(db.data);
-  $('#promptPreview').value = prompt;
+  const prompt = buildPrompt();
+  if ($('#promptPreview')) $('#promptPreview').value = prompt;
   return prompt;
 }
 
 async function copyPrompt() {
-  const prompt = enrichPromptText();
-  await navigator.clipboard.writeText(prompt);
-  toast('解析プロンプトをコピーしました');
+  await navigator.clipboard.writeText(enrichPromptText());
+  toast('復旧用の解析指示をコピーしました');
 }
 
 async function sendToChatGPT() {
   if (!state.files.length) {
-    toast('先に注文票の画像を選んでください', 'warn');
+    toast('先に注文票を撮影してください', 'warn');
     return;
   }
-  const prompt = enrichPromptText();
   try {
-    const result = await shareToChatGPT(state.files, prompt);
-    toast(result.method === 'share'
-      ? 'ChatGPTで送信 → 回答をコピー → 「集計アプリに戻る」をタップしてください'
-      : 'プロンプトをコピーしてChatGPTを開きました。画像も添付してください');
+    const result = await shareToChatGPT(state.files, enrichPromptText());
+    state.scanId = result.scanId || getActiveScanId();
+    toast(result.imageCopied
+      ? 'ChatGPTが開いたら貼り付け → 送信 → 最後に「許可」を押してください'
+      : '保存された画像をChatGPTへ添付 → 送信 → 最後に「許可」を押してください');
   } catch (error) {
-    if (error?.name !== 'AbortError') toast(error.message || '共有に失敗しました', 'error');
+    if (error?.name !== 'AbortError') toast(error.message || 'ChatGPTを開けませんでした', 'error');
   }
+}
+
+function persistCurrentSession(forceStatus = '') {
+  if (!state.recognitions.length) return;
+  const allConfirmed = state.recognitions.every(item => item.status === 'confirmed');
+  const workflowStatus = forceStatus || (allConfirmed ? 'complete' : 'review');
+  const totals = allConfirmed ? aggregateRecognitions(state.recognitions, db.data.products) : [];
+  db.saveSession(buildSessionSnapshot({
+    id: state.sessionId,
+    scanId: state.scanId || getActiveScanId(),
+    writerTag: state.writerTag,
+    source: state.source || 'manual',
+    rawPayload: state.rawPayload,
+    recognitions: state.recognitions,
+    imageCount: state.files.length,
+    workflowStatus,
+    totals
+  }));
+  renderHistory();
 }
 
 function ingestItems(items, source = 'manual') {
   const writerTag = currentWriterTag();
+  state.sessionId = uid('session');
+  state.scanId = getActiveScanId() || state.scanId;
+  state.source = source;
+  state.rawPayload = $('#analysisJson')?.value || '';
   state.expanded.clear();
   state.recognitions = items
     .map(item => resolveRecognitionItem(item, db.data, writerTag))
     .sort((a, b) => a.order - b.order);
-  db.saveSession({
-    id: state.sessionId,
-    writerTag,
-    source,
-    imageCount: state.files.length,
-    recognitionCount: state.recognitions.length,
-    resolvedCount: 0
-  });
   renderReview();
   renderHeaderStats();
   $('#resultArea').hidden = true;
@@ -154,27 +197,24 @@ function ingestItems(items, source = 'manual') {
 function parsePastedResult() {
   try {
     const items = parseAnalysisPayload($('#analysisJson').value);
-    ingestItems(items, 'chatgpt-paste');
-    toast(`${items.length}件を紙の順に読み込みました`);
+    ingestItems(items, 'chatgpt-result');
+    toast(`${items.length}件を読み込みました`);
   } catch (error) {
-    toast(error.message || 'JSONを読み込めませんでした', 'error');
+    toast(error.message || '解析結果を読み込めませんでした', 'error');
   }
 }
 
 function useSample() {
   $('#analysisJson').value = JSON.stringify(SAMPLE_ANALYSIS, null, 2);
   ingestItems(parseAnalysisPayload(SAMPLE_ANALYSIS), 'sample');
-  toast('サンプルデータで全件確認モードを試せます');
+  toast('サンプルデータを読み込みました');
 }
 
 async function analyzeBackend() {
-  if (!state.files.length) {
-    toast('先に注文票の画像を選んでください', 'warn');
-    return;
-  }
+  if (!state.files.length) return toast('先に注文票を撮影してください', 'warn');
   const endpoint = db.data.settings.backendEndpoint;
   if (!endpoint) {
-    toast('「データ・設定」で安全なAIバックエンドURLを設定してください', 'warn');
+    toast('データ・設定でAIバックエンドURLを設定してください', 'warn');
     setTab('data');
     return;
   }
@@ -190,7 +230,6 @@ async function analyzeBackend() {
     });
     $('#analysisJson').value = JSON.stringify({ items }, null, 2);
     ingestItems(items, 'backend');
-    toast('AI解析が完了しました。上から順に確認してください');
   } catch (error) {
     toast(error.message || 'AI解析に失敗しました', 'error');
   } finally {
@@ -229,7 +268,7 @@ function markDirty(item) {
 function candidateHint(item) {
   if (item.status === 'confirmed') return '<span class="review-state confirmed">確定済み</span>';
   if (item.cancelled) return '<span class="review-state cancelled">取消予定</span>';
-  if (item.manual && !item.rawName.trim()) return '<span class="review-state new">入力待ち</span>';
+  if (item.manual && !item.rawName.trim()) return '<span class="review-state new">商品名を入力</span>';
   const score = Number(item.candidates?.[0]?.score || 0);
   if (score >= 0.93) return '<span class="review-state matched">既存商品とほぼ一致</span>';
   if (score >= 0.64) return '<span class="review-state candidate">似た商品候補あり</span>';
@@ -242,13 +281,9 @@ function linkedProductLabel(item) {
   return product ? `統合先：${escapeHtml(product.canonicalName)}` : '';
 }
 
-function reviewGroupKey(item) {
-  return [item.place || '', item.time || '', item.person || ''].join('|');
-}
-
 function reviewGroupTitle(item) {
   const headline = [item.place, item.time].filter(Boolean).join('　');
-  const person = item.person || '個人名未読取';
+  const person = item.person || '注文者';
   return `<div class="paper-group-head">
     ${headline ? `<div class="paper-group-meta">${escapeHtml(headline)}</div>` : ''}
     <h3>${escapeHtml(person)}</h3>
@@ -259,9 +294,7 @@ function renderEditPanel(item) {
   const candidates = (item.candidates || []).filter(candidate => candidate.score >= 0.4).slice(0, 3);
   const candidateHtml = candidates.length
     ? candidates.map((candidate, index) => `<button class="candidate-chip ${item.matchedProductId === candidate.productId ? 'selected' : ''}" data-action="candidate" data-id="${item.id}" data-product="${candidate.productId}">
-        <span>候補${index + 1}</span>
-        <strong>${escapeHtml(candidate.canonicalName)}</strong>
-        <small>${formatConfidence(candidate.score)}${candidate.location ? ` · ${escapeHtml(candidate.location)}` : ''}</small>
+        <span>候補${index + 1}</span><strong>${escapeHtml(candidate.canonicalName)}</strong><small>${formatConfidence(candidate.score)}${candidate.location ? ` · ${escapeHtml(candidate.location)}` : ''}</small>
       </button>`).join('')
     : '<div class="candidate-empty">近い登録商品はまだありません</div>';
 
@@ -282,75 +315,78 @@ function renderEditPanel(item) {
   </div>`;
 }
 
+function renderReviewLine(item) {
+  const expanded = state.expanded.has(item.id);
+  const product = productById(item.matchedProductId);
+  const displayName = (product && item.status === 'confirmed' ? product.canonicalName : item.rawName) || '商品名を入力';
+  const subLabel = linkedProductLabel(item);
+  const secondary = subLabel || (item.manual ? '手動追加' : `AI ${formatConfidence(item.confidence)}`);
+  const nameBlock = item.manual && !item.rawName
+    ? `<button type="button" class="review-line-text name-touch" data-action="edit-name" data-id="${item.id}"><strong class="placeholder-name">商品名を入力</strong><div class="review-line-sub">タップして入力</div></button>`
+    : `<div class="review-line-text"><strong>${escapeHtml(displayName)}</strong><div class="review-line-sub">${secondary}</div></div>`;
+
+  return `<article class="review-line ${item.status === 'confirmed' ? 'is-confirmed' : ''} ${item.cancelled ? 'is-cancelled' : ''} ${item.manual ? 'is-manual' : ''}" data-id="${item.id}">
+    <div class="review-line-main">
+      <span class="paper-order">${item.order || ''}</span>
+      ${nameBlock}
+      <div class="quick-qty" aria-label="数量 ${item.quantity}">
+        <button type="button" data-action="qty-minus" data-id="${item.id}" aria-label="数量を1減らす" ${Number(item.quantity) <= 0 ? 'disabled' : ''}>−</button>
+        <strong>${item.quantity}</strong>
+        <button type="button" data-action="qty-plus" data-id="${item.id}" aria-label="数量を1増やす">＋</button>
+      </div>
+    </div>
+    <div class="review-line-actions">
+      ${candidateHint(item)}
+      <button type="button" class="edit-toggle" data-action="toggle-edit" data-id="${item.id}">${expanded ? '閉じる' : '編集'}</button>
+      <button type="button" class="line-tool-btn delete-line-btn" data-action="delete" data-id="${item.id}">削除</button>
+      ${item.status === 'confirmed'
+        ? '<span class="confirmed-mark" aria-label="確定済み">✓</span>'
+        : `<button type="button" class="confirm-line-btn" data-action="confirm" data-id="${item.id}">確定</button>`}
+    </div>
+    ${expanded ? renderEditPanel(item) : ''}
+  </article>`;
+}
+
 function renderReview() {
   const total = state.recognitions.length;
   const confirmed = state.recognitions.filter(item => item.status === 'confirmed').length;
   const cancelled = state.recognitions.filter(item => item.status === 'confirmed' && item.cancelled).length;
   $('#reviewBadge').textContent = `${confirmed}/${total}`;
   $('#reviewSummary').textContent = total
-    ? `紙の上から順に全${total}件を確認します。確定 ${confirmed}/${total}${cancelled ? `（取消 ${cancelled}件）` : ''}`
+    ? `全${total}件　確定 ${confirmed}/${total}${cancelled ? `　取消 ${cancelled}件` : ''}`
     : '解析結果がありません';
   const progress = total ? Math.round((confirmed / total) * 100) : 0;
-  const progressBar = $('#reviewProgressBar');
-  if (progressBar) progressBar.style.width = `${progress}%`;
-  const progressText = $('#reviewProgressText');
-  if (progressText) progressText.textContent = `${progress}%`;
+  $('#reviewProgressBar').style.width = `${progress}%`;
+  $('#reviewProgressText').textContent = `${progress}%`;
 
   const list = $('#reviewList');
   if (!total) {
-    list.innerHTML = '<div class="empty-state">注文票の解析結果を読み込むと、ここに紙の順で表示されます。</div>';
+    list.innerHTML = '<div class="empty-state">解析結果を受け取ると、ここに表示されます。</div>';
     $('#finishReviewBtn').disabled = true;
     return;
   }
 
-  let previousGroup = null;
-  const rows = state.recognitions.map(item => {
-    const groupKey = reviewGroupKey(item);
-    const groupHeader = groupKey !== previousGroup ? reviewGroupTitle(item) : '';
-    previousGroup = groupKey;
-    const expanded = state.expanded.has(item.id);
-    const product = productById(item.matchedProductId);
-    const displayName = (product && item.status === 'confirmed' ? product.canonicalName : item.rawName) || '商品名を入力';
-    const subLabel = linkedProductLabel(item);
-    const secondary = subLabel || (item.manual ? '手動追加' : `AI ${formatConfidence(item.confidence)}`);
-    return `${groupHeader}<article class="review-line ${item.status === 'confirmed' ? 'is-confirmed' : ''} ${item.cancelled ? 'is-cancelled' : ''} ${item.manual ? 'is-manual' : ''}" data-id="${item.id}">
-      <div class="review-line-main">
-        <span class="paper-order">${item.order || ''}</span>
-        <div class="review-line-text">
-          <strong class="${item.rawName ? '' : 'placeholder-name'}">${escapeHtml(displayName)}</strong>
-          <div class="review-line-sub">${secondary}</div>
-        </div>
-        <div class="quick-qty" aria-label="数量 ${item.quantity}">
-          <button type="button" data-action="qty-minus" data-id="${item.id}" aria-label="数量を1減らす" ${Number(item.quantity) <= 0 ? 'disabled' : ''}>−</button>
-          <strong>${item.quantity}</strong>
-          <button type="button" data-action="qty-plus" data-id="${item.id}" aria-label="数量を1増やす">＋</button>
-        </div>
-      </div>
-      <div class="review-line-actions">
-        ${candidateHint(item)}
-        <button type="button" class="line-tool-btn add-line-btn" data-action="insert-after" data-id="${item.id}">＋ 下に追加</button>
-        <button type="button" class="edit-toggle" data-action="toggle-edit" data-id="${item.id}">${expanded ? '閉じる' : '編集'}</button>
-        <button type="button" class="line-tool-btn delete-line-btn" data-action="delete" data-id="${item.id}">削除</button>
-        ${item.status === 'confirmed'
-          ? '<span class="confirmed-mark" aria-label="確定済み">✓</span>'
-          : `<button type="button" class="confirm-line-btn" data-action="confirm" data-id="${item.id}">確定</button>`}
-      </div>
-      ${expanded ? renderEditPanel(item) : ''}
-    </article>`;
+  list.innerHTML = groupRecognitions(state.recognitions).map(group => {
+    const first = group.items[0];
+    const last = group.items.at(-1);
+    return `<section class="review-person-group">
+      ${reviewGroupTitle(first)}
+      ${group.items.map(renderReviewLine).join('')}
+      <button type="button" class="group-add-item" data-action="insert-after" data-id="${last.id}">＋ 商品を追加</button>
+    </section>`;
   }).join('');
-  const lastItem = state.recognitions.at(-1);
-  list.innerHTML = `${rows}<button type="button" class="append-item-btn" data-action="insert-after" data-id="${lastItem.id}">＋ 最後に商品を追加</button>`;
 
   const finishButton = $('#finishReviewBtn');
   finishButton.disabled = confirmed !== total;
   finishButton.textContent = confirmed === total ? '確認完了・商品別集計を見る' : `あと${total - confirmed}件確認`;
 
   if (confirmed === total) {
-    renderTotals();
+    renderTotals(false);
     $('#resultArea').hidden = false;
   } else {
     $('#resultArea').hidden = true;
   }
+  persistCurrentSession();
 }
 
 function selectCandidate(item, productId) {
@@ -371,14 +407,10 @@ function setNewProduct(item) {
   item.forceNew = true;
   state.expanded.add(item.id);
   renderReview();
-  toast('この表記を新商品として登録する設定にしました');
 }
 
 function focusRecognitionName(id) {
-  requestAnimationFrame(() => {
-    const input = document.querySelector(`.edit-name[data-id="${id}"]`);
-    input?.focus();
-  });
+  requestAnimationFrame(() => document.querySelector(`.edit-name[data-id="${id}"]`)?.focus());
 }
 
 function addRecognitionAfter(item) {
@@ -394,19 +426,19 @@ function addRecognitionAfter(item) {
     cancelled: false,
     note: ''
   }, db.data, currentWriterTag());
-  newItem.manual = true;
-  newItem.confidence = 0;
-  newItem.matchedProductId = null;
-  newItem.suggestedProductId = null;
-  newItem.suggestedScore = 0;
-  newItem.forceNew = false;
-  newItem.candidates = [];
+  Object.assign(newItem, {
+    manual: true,
+    confidence: 0,
+    matchedProductId: null,
+    suggestedProductId: null,
+    suggestedScore: 0,
+    forceNew: false,
+    candidates: []
+  });
   insertRecognitionAfter(state.recognitions, item.id, newItem);
-  state.expanded.add(newItem.id);
   $('#resultArea').hidden = true;
   renderReview();
-  focusRecognitionName(newItem.id);
-  toast('この下に商品を追加しました');
+  toast('空の商品カードを追加しました。商品名をタップして入力してください');
 }
 
 function deleteRecognition(item) {
@@ -483,14 +515,8 @@ function maybeAutoFinish() {
   if (!state.recognitions.length || !state.recognitions.every(item => item.status === 'confirmed')) return;
   renderTotals();
   $('#resultArea').hidden = false;
-  db.saveSession({
-    id: state.sessionId,
-    resolvedCount: state.recognitions.filter(item => !item.cancelled).length,
-    confirmedCount: state.recognitions.length,
-    writerTag: currentWriterTag(),
-    imageCount: state.files.length
-  });
-  toast('全件確認完了。同じ商品を自動統合して集計しました');
+  persistCurrentSession('complete');
+  toast('全件確認完了。商品別に集計しました');
 }
 
 function handleReviewClick(event) {
@@ -504,6 +530,10 @@ function handleReviewClick(event) {
     if (state.expanded.has(item.id)) state.expanded.delete(item.id);
     else state.expanded.add(item.id);
     renderReview();
+  } else if (action === 'edit-name') {
+    state.expanded.add(item.id);
+    renderReview();
+    focusRecognitionName(item.id);
   } else if (action === 'close-edit') {
     state.expanded.delete(item.id);
     renderReview();
@@ -518,8 +548,7 @@ function handleReviewClick(event) {
     renderReview();
   } else if (action === 'qty-minus' || action === 'qty-plus') {
     markDirty(item);
-    const delta = action === 'qty-plus' ? 1 : -1;
-    item.quantity = Math.max(0, Number(item.quantity || 0) + delta);
+    item.quantity = Math.max(0, Number(item.quantity || 0) + (action === 'qty-plus' ? 1 : -1));
     renderReview();
   } else if (action === 'insert-after') {
     addRecognitionAfter(item);
@@ -535,7 +564,6 @@ function handleReviewChange(event) {
   if (!id) return;
   const item = recognitionById(id);
   if (!item) return;
-
   if (event.target.classList.contains('edit-name')) {
     const value = event.target.value.trim();
     if (!value) return;
@@ -547,29 +575,18 @@ function handleReviewChange(event) {
     state.expanded.add(item.id);
     renderReview();
   }
-  if (event.target.classList.contains('edit-qty')) {
-    markDirty(item);
-    item.quantity = Math.max(0, Number(event.target.value || 0));
-    state.expanded.add(item.id);
-    renderReview();
-  }
 }
 
 function finishReview() {
   if (!state.recognitions.length) return;
-  if (!state.recognitions.every(item => item.status === 'confirmed')) {
-    toast('まだ未確認の明細があります', 'warn');
-    return;
-  }
+  if (!state.recognitions.every(item => item.status === 'confirmed')) return toast('まだ未確認の明細があります', 'warn');
   renderTotals();
   $('#resultArea').hidden = false;
   $('#resultArea').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function locationOptions(current = '') {
-  return ['', 'A', 'B', 'C', 'D', 'E'].map(loc =>
-    `<option value="${loc}" ${loc === current ? 'selected' : ''}>${loc || '未設定'}</option>`
-  ).join('');
+  return ['', 'A', 'B', 'C', 'D', 'E'].map(loc => `<option value="${loc}" ${loc === current ? 'selected' : ''}>${loc || '未設定'}</option>`).join('');
 }
 
 function summaryText(totals) {
@@ -579,12 +596,10 @@ function summaryText(totals) {
     if (!groups.has(location)) groups.set(location, []);
     groups.get(location).push(item);
   }
-  return [...groups.entries()].map(([location, items]) =>
-    `【${location}】\n${items.map(item => `${item.canonicalName} × ${item.quantity}`).join('\n')}`
-  ).join('\n\n');
+  return [...groups.entries()].map(([location, items]) => `【${location}】\n${items.map(item => `${item.canonicalName} × ${item.quantity}`).join('\n')}`).join('\n\n');
 }
 
-function renderTotals() {
+function renderTotals(save = true) {
   const totals = aggregateRecognitions(state.recognitions, db.data.products);
   $('#totalProductCount').textContent = totals.length;
   $('#totalQuantity').textContent = totals.reduce((sum, item) => sum + item.quantity, 0);
@@ -613,14 +628,7 @@ function renderTotals() {
     renderProducts();
     toast('売り場を更新しました');
   }));
-
-  db.saveSession({
-    id: state.sessionId,
-    totals,
-    resolvedCount: totals.length,
-    writerTag: currentWriterTag(),
-    imageCount: state.files.length
-  });
+  if (save && state.recognitions.length) persistCurrentSession('complete');
 }
 
 async function shareSummary() {
@@ -638,6 +646,78 @@ async function shareSummary() {
   }
 }
 
+function renderHistory() {
+  const resume = findResumeSession(db.data.sessions);
+  const resumeCard = $('#resumeCard');
+  if (resumeCard) {
+    resumeCard.hidden = !resume;
+    if (resume) {
+      const confirmed = Number(resume.confirmedCount || 0);
+      const total = Number(resume.recognitionCount || resume.recognitions?.length || 0);
+      resumeCard.innerHTML = `<div><strong>前回の作業が途中です</strong><span>${formatSessionDate(resume.updatedAt)}　${confirmed}/${total}件確認済み</span></div><button type="button" class="primary-btn" data-resume-session="${resume.id}">続きから再開</button>`;
+    }
+  }
+
+  const list = $('#recentSessions');
+  if (!list) return;
+  const sessions = recentRestorableSessions(db.data.sessions, 10);
+  list.innerHTML = sessions.length ? sessions.map(session => {
+    const total = Number(session.recognitionCount || session.recognitions?.length || 0);
+    const confirmed = Number(session.confirmedCount || 0);
+    const status = session.workflowStatus === 'complete' ? '完了' : `確認途中 ${confirmed}/${total}`;
+    return `<button type="button" class="history-row" data-session-id="${session.id}">
+      <span><strong>${formatSessionDate(session.updatedAt)}</strong><small>${total}件</small></span>
+      <span class="history-status ${session.workflowStatus === 'complete' ? 'complete' : ''}">${status}</span>
+      <b>開く</b>
+    </button>`;
+  }).join('') : '<div class="empty-mini">まだ保存された読み取りはありません</div>';
+}
+
+function restoreSessionById(id) {
+  const session = db.getSession(id);
+  if (!session?.recognitions?.length) return toast('復元できる履歴がありません', 'warn');
+  state.sessionId = session.id;
+  state.scanId = session.scanId || '';
+  state.source = session.source || 'history';
+  state.rawPayload = session.rawPayload || '';
+  state.writerTag = session.writerTag || '';
+  state.recognitions = cloneValue(session.recognitions);
+  state.expanded.clear();
+  if ($('#writerTag')) $('#writerTag').value = state.writerTag;
+  if ($('#analysisJson')) $('#analysisJson').value = state.rawPayload;
+  $('#reviewArea').hidden = false;
+  renderReview();
+  if (session.workflowStatus === 'complete') {
+    renderTotals(false);
+    $('#resultArea').hidden = false;
+  }
+  $('#reviewArea').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  toast('保存した作業を復元しました');
+}
+
+async function restoreLastActionResult() {
+  const latest = recentRestorableSessions(db.data.sessions, 1)[0];
+  const scanId = latest?.scanId || getActiveScanId();
+  if (!scanId) return toast('復元できるIDがありません', 'warn');
+  try {
+    const restored = await restoreActionScan(scanId);
+    if (!restored) toast('保存された解析結果が見つかりません', 'warn');
+  } catch (error) {
+    toast(error.message || '解析結果を復元できませんでした', 'error');
+  }
+}
+
+async function restoreByEnteredScanId() {
+  const scanId = ($('#restoreScanIdInput')?.value || '').trim();
+  if (!scanId) return toast('復元IDを入力してください', 'warn');
+  try {
+    const restored = await restoreActionScan(scanId);
+    if (!restored) toast('保存された解析結果が見つかりません', 'warn');
+  } catch (error) {
+    toast(error.message || '解析結果を復元できませんでした', 'error');
+  }
+}
+
 function renderProducts() {
   const query = ($('#productSearch')?.value || '').trim().toLowerCase();
   const products = db.data.products
@@ -648,13 +728,7 @@ function renderProducts() {
     const aliases = db.data.aliases.filter(a => a.productId === product.id);
     const humanLearned = aliases.filter(a => a.source === 'human-correction').length;
     return `<article class="product-card">
-      <div class="product-main">
-        <div>
-          <h3>${escapeHtml(product.canonicalName)}</h3>
-          <div class="alias-line">${aliases.slice(0, 5).map(a => `<span>${escapeHtml(a.alias)}</span>`).join('')}${aliases.length > 5 ? `<span>+${aliases.length - 5}</span>` : ''}</div>
-        </div>
-        <select class="db-location-select" data-product="${product.id}">${locationOptions(product.location)}</select>
-      </div>
+      <div class="product-main"><div><h3>${escapeHtml(product.canonicalName)}</h3><div class="alias-line">${aliases.slice(0, 5).map(a => `<span>${escapeHtml(a.alias)}</span>`).join('')}${aliases.length > 5 ? `<span>+${aliases.length - 5}</span>` : ''}</div></div><select class="db-location-select" data-product="${product.id}">${locationOptions(product.location)}</select></div>
       <div class="product-meta">表記 ${aliases.length}件 · 手動学習 ${humanLearned}件</div>
       <button class="text-button add-alias-btn" data-product="${product.id}">＋ 別の書き方を登録</button>
     </article>`;
@@ -663,7 +737,7 @@ function renderProducts() {
   $$('.db-location-select').forEach(select => select.addEventListener('change', () => {
     db.setLocation(select.dataset.product, select.value);
     renderProducts();
-    renderTotals();
+    if (state.recognitions.length) renderTotals(false);
   }));
   $$('.add-alias-btn').forEach(button => button.addEventListener('click', () => {
     const product = productById(button.dataset.product);
@@ -692,18 +766,13 @@ function renderDataStats() {
   $('#dataSessionCount').textContent = db.data.sessions.length;
   $('#backendEndpoint').value = db.data.settings.backendEndpoint || '';
   $('#providerLabel').value = db.data.settings.providerLabel || '';
+  if ($('#catalogItemCount')) $('#catalogItemCount').textContent = Number(db.data.catalogMeta?.itemCount || 0).toLocaleString('ja-JP');
 }
 
 function saveSettings() {
   const endpoint = $('#backendEndpoint').value.trim();
-  if (endpoint && !/^https:\/\//i.test(endpoint)) {
-    toast('バックエンドURLは https:// から始めてください', 'error');
-    return;
-  }
-  db.updateSettings({
-    backendEndpoint: endpoint,
-    providerLabel: $('#providerLabel').value.trim() || 'AI backend'
-  });
+  if (endpoint && !/^https:\/\//i.test(endpoint)) return toast('バックエンドURLは https:// から始めてください', 'error');
+  db.updateSettings({ backendEndpoint: endpoint, providerLabel: $('#providerLabel').value.trim() || 'AI backend' });
   toast('設定を保存しました');
 }
 
@@ -725,6 +794,7 @@ async function importBackup(file) {
     renderHeaderStats();
     renderProducts();
     renderDataStats();
+    renderHistory();
     toast('学習DBを復元しました');
   } catch (error) {
     toast(error.message || 'バックアップを読み込めませんでした', 'error');
@@ -739,6 +809,7 @@ function resetDb() {
   renderHeaderStats();
   renderProducts();
   renderDataStats();
+  renderHistory();
   $('#reviewArea').hidden = true;
   $('#resultArea').hidden = true;
   toast('データベースを初期化しました');
@@ -762,12 +833,13 @@ function setupInstall() {
 function setupEvents() {
   $$('.tab-button').forEach(button => button.addEventListener('click', () => setTab(button.dataset.tab)));
   $('#imageInput').addEventListener('change', event => setFiles(event.target.files));
-  $('#writerTag').addEventListener('change', currentWriterTag);
-  $('#copyPromptBtn').addEventListener('click', copyPrompt);
+  $('#rotateImageBtn')?.addEventListener('click', toggleImageFlip);
+  $('#writerTag')?.addEventListener('change', currentWriterTag);
+  $('#copyPromptBtn')?.addEventListener('click', copyPrompt);
   $('#chatgptShareBtn').addEventListener('click', sendToChatGPT);
   $('#parseResultBtn').addEventListener('click', parsePastedResult);
-  $('#sampleBtn').addEventListener('click', useSample);
-  $('#backendAnalyzeBtn').addEventListener('click', analyzeBackend);
+  $('#sampleBtn')?.addEventListener('click', useSample);
+  $('#backendAnalyzeBtn')?.addEventListener('click', analyzeBackend);
   $('#reviewList').addEventListener('click', handleReviewClick);
   $('#reviewList').addEventListener('change', handleReviewChange);
   $('#finishReviewBtn').addEventListener('click', finishReview);
@@ -779,12 +851,20 @@ function setupEvents() {
   $('#exportBtn').addEventListener('click', downloadBackup);
   $('#importInput').addEventListener('change', event => importBackup(event.target.files?.[0]));
   $('#resetBtn').addEventListener('click', resetDb);
+  $('#resumeCard')?.addEventListener('click', event => {
+    const button = event.target.closest('[data-resume-session]');
+    if (button) restoreSessionById(button.dataset.resumeSession);
+  });
+  $('#recentSessions')?.addEventListener('click', event => {
+    const button = event.target.closest('[data-session-id]');
+    if (button) restoreSessionById(button.dataset.sessionId);
+  });
+  $('#restoreLastCloudBtn')?.addEventListener('click', restoreLastActionResult);
+  $('#restoreScanIdBtn')?.addEventListener('click', restoreByEnteredScanId);
 }
 
 function registerServiceWorker() {
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(console.warn));
-  }
+  if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(console.warn));
 }
 
 function init() {
@@ -792,6 +872,7 @@ function init() {
   renderFiles();
   renderProducts();
   renderDataStats();
+  renderHistory();
   enrichPromptText();
   setupEvents();
   setupInstall();
