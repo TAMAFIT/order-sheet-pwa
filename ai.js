@@ -1,7 +1,9 @@
 import { makeAnalysisPrompt, parseAnalysisPayload } from './lib.js';
 import { ensureActiveScan, getActiveScanId } from './scan-session.js';
 import { CUSTOM_GPT_URL } from './runtime-config.js';
+import './capture-guard.js';
 import './action-return.js';
+import './handoff-ui.js';
 
 export function productsForPrompt(db) {
   return db.products.map(product => ({
@@ -135,6 +137,58 @@ async function buildBundledShareFiles(files, scanId) {
   return bundled;
 }
 
+let preparedCache = { scanId: '', promise: null };
+
+function prepareBundledFiles(scanId, files) {
+  const sourceFiles = Array.from(files || []);
+  if (!scanId || !sourceFiles.length) return null;
+  const promise = buildBundledShareFiles(sourceFiles, scanId).catch(error => {
+    console.warn('Prepared image generation failed.', error);
+    return [];
+  });
+  preparedCache = { scanId, promise };
+  return promise;
+}
+
+if (typeof document !== 'undefined') {
+  globalThis.addEventListener('order-sheet-scan-changed', event => {
+    const scan = event.detail;
+    if (scan?.status !== 'captured' || !scan.scanId) return;
+    const files = document.querySelector('#imageInput')?.files;
+    if (files?.length) prepareBundledFiles(scan.scanId, files);
+  });
+}
+
+async function preparedFilesFor(scanId, files) {
+  if (preparedCache.scanId === scanId && preparedCache.promise) return preparedCache.promise;
+  return prepareBundledFiles(scanId, files) || [];
+}
+
+async function toPngBlob(file) {
+  const img = await loadImage(file);
+  const canvas = document.createElement('canvas');
+  canvas.width = img.naturalWidth || img.width;
+  canvas.height = img.naturalHeight || img.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('画像をクリップボード用に変換できません');
+  ctx.drawImage(img, 0, 0);
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(result => result ? resolve(result) : reject(new Error('画像をクリップボード用に変換できません')), 'image/png');
+  });
+}
+
+async function copyPreparedImage(file) {
+  if (!navigator.clipboard?.write || typeof globalThis.ClipboardItem === 'undefined') return false;
+  try {
+    const png = await toPngBlob(file);
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+    return true;
+  } catch (error) {
+    console.warn('Image clipboard is unavailable; using saved-file fallback.', error);
+    return false;
+  }
+}
+
 function downloadPreparedFile(file) {
   const url = URL.createObjectURL(file);
   const anchor = document.createElement('a');
@@ -147,6 +201,10 @@ function downloadPreparedFile(file) {
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 function openDedicatedCustomGpt() {
   window.location.assign(CUSTOM_GPT_URL);
 }
@@ -157,25 +215,36 @@ export async function shareToChatGPT(files, prompt) {
   let bundledFiles = [];
 
   try {
-    if (sourceFiles.length) bundledFiles = await buildBundledShareFiles(sourceFiles, scanId);
+    bundledFiles = await preparedFilesFor(scanId, sourceFiles);
   } catch (error) {
     console.warn('Bundled share image failed; opening the dedicated GPT with the original image as manual fallback.', error);
   }
 
-  try { await navigator.clipboard?.writeText?.(prompt); } catch {}
+  let imageCopied = false;
+  let filesSaved = false;
 
-  if (bundledFiles.length) {
+  if (bundledFiles.length === 1) imageCopied = await copyPreparedImage(bundledFiles[0]);
+
+  if (!imageCopied && bundledFiles.length) {
     try {
       bundledFiles.forEach(downloadPreparedFile);
+      filesSaved = true;
+      await sleep(700);
     } catch (error) {
       console.warn('Prepared-image download failed. The user can attach the original photo manually.', error);
     }
+  }
+
+  if (!imageCopied) {
+    try { await navigator.clipboard?.writeText?.(prompt); } catch {}
   }
 
   openDedicatedCustomGpt();
   return {
     method: 'custom-gpt',
     bundled: bundledFiles.length > 0,
+    imageCopied,
+    filesSaved,
     preparedFileCount: bundledFiles.length,
     scanId,
     customGptUrl: CUSTOM_GPT_URL
