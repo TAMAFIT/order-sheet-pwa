@@ -28,3 +28,22 @@ export function splitStatus(count = 0) {
   if (slot === 'bottom') return { slot, label: '② 下半分を撮影してください', complete: false };
   return { slot, label: '上下2枚を1枚にまとめました', complete: true };
 }
+
+export function captureModeUi(mode = CAPTURE_MODE_SINGLE, splitCount = 0) {
+  const normalized = normalizeCaptureMode(mode);
+  if (normalized === CAPTURE_MODE_SINGLE) {
+    return {
+      split: false,
+      help: '注文票全体を1枚で撮影します。',
+      status: '',
+      bottomEnabled: false
+    };
+  }
+  const status = splitStatus(splitCount);
+  return {
+    split: true,
+    help: '文字が小さい時におすすめ。上半分と下半分を別々に撮影し、自動で1枚にまとめます。',
+    status: status.label,
+    bottomEnabled: splitCount >= 1
+  };
+}
