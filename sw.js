@@ -1,4 +1,4 @@
-const CACHE = 'order-sheet-pwa-v4';
+const CACHE = 'order-sheet-pwa-v5';
 const ASSETS = [
   './',
   './index.html',
@@ -7,6 +7,9 @@ const ASSETS = [
   './review-v2.css',
   './app.js',
   './chatgpt-flow.js',
+  './action-return.js',
+  './action-return-core.js',
+  './scan-session.js',
   './db.js',
   './ai.js',
   './lib.js',
