@@ -1,0 +1,9 @@
+{
+  "name": "order-sheet-pwa",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/lib.test.mjs && node --check app.js && node --check db.js && node --check ai.js && node --check lib.js"
+  }
+}
