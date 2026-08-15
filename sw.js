@@ -1,9 +1,11 @@
-const CACHE = 'order-sheet-pwa-v1';
+const CACHE = 'order-sheet-pwa-v2';
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
+  './chatgpt-flow.css',
   './app.js',
+  './chatgpt-flow.js',
   './db.js',
   './ai.js',
   './lib.js',
