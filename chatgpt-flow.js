@@ -41,7 +41,7 @@ function setStatus(state, message) {
 
 function markAwaiting() {
   localStorage.setItem(AWAITING_KEY, '1');
-  setStatus('waiting', '専用GPTで解析中。Action成功後はPWAへ戻るだけで結果を取得します');
+  setStatus('waiting', 'ChatGPTで画像を送信し、解析後に表示される「許可」を必ず押してください');
 }
 
 function clearAwaiting() {
@@ -60,24 +60,7 @@ function isActionAwaiting() {
   }
 }
 
-function cameFromChatGPT() {
-  try {
-    return new URL(window.location.href).searchParams.get('from') === 'chatgpt';
-  } catch {
-    return false;
-  }
-}
-
-function cleanReturnParam() {
-  try {
-    const url = new URL(window.location.href);
-    if (!url.searchParams.has('from')) return;
-    url.searchParams.delete('from');
-    history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
-  } catch {}
-}
-
-function importText(text, source = 'clipboard') {
+function importText(text) {
   const clean = cleanJsonText(text);
   if (!looksLikeAnalysisJson(clean)) return false;
   const textarea = $('#analysisJson');
@@ -86,15 +69,14 @@ function importText(text, source = 'clipboard') {
   textarea.value = clean;
   localStorage.setItem(LAST_IMPORTED_KEY, clean);
   clearAwaiting();
-  cleanReturnParam();
-  setStatus('done', '結果を取り込みました。紙の順の確認画面へ移動します');
+  setStatus('done', 'バックアップ結果を取り込みました。確認画面へ進みます');
   parseButton.click();
   return true;
 }
 
 async function readClipboardAndImport({ silent = false } = {}) {
   if (!navigator.clipboard?.readText) {
-    if (!silent) setStatus('manual', 'この端末では自動取得できません。下の手動入力を使ってください');
+    if (!silent) setStatus('manual', 'この端末ではクリップボードを自動で読めません。下の貼り付け欄を使ってください');
     return false;
   }
   try {
@@ -102,66 +84,49 @@ async function readClipboardAndImport({ silent = false } = {}) {
     const clean = cleanJsonText(text);
     const lastImported = localStorage.getItem(LAST_IMPORTED_KEY) || '';
     if (!clean || clean === lastImported || !looksLikeAnalysisJson(clean)) {
-      if (!silent) setStatus('ready', 'Action失敗時はGPTのJSON回答をコピーしてから、もう一度このボタンを押してください');
+      if (!silent) setStatus('ready', 'バックアップJSONをコピーしてから、もう一度取り込んでください');
       return false;
     }
-    return importText(clean, 'clipboard');
+    return importText(clean);
   } catch {
-    if (!silent) setStatus('ready', 'Action失敗時、回答をコピー済みなら「コピー結果を取り込む」を1回押してください');
+    if (!silent) setStatus('ready', 'バックアップJSONをコピー済みなら、貼り付け欄から復元してください');
     return false;
   }
 }
 
 let resumeTimer = null;
-function tryAutoImportOnReturn({ force = false } = {}) {
-  if (isActionAwaiting()) return;
-  if (!force && !isAwaiting()) return;
+function tryAutoImportOnReturn() {
+  if (isActionAwaiting() || !isAwaiting()) return;
   clearTimeout(resumeTimer);
   resumeTimer = setTimeout(async () => {
-    setStatus('checking', 'コピー済みのフォールバック結果を確認しています…');
     const imported = await readClipboardAndImport({ silent: true });
-    if (!imported && (isAwaiting() || force)) {
-      setStatus('ready', 'Action結果が無い場合は、GPTのJSON回答をコピーして下のボタンから取り込めます');
-      $('#returnFlowCard')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
+    if (!imported && isAwaiting()) setStatus('ready', '通常はChatGPTで「許可」を押すと自動で届きます。送信失敗時だけ下の復旧を使ってください');
   }, 350);
 }
 
 function setup() {
-  const shareButton = $('#chatgptShareBtn');
-  const importButton = $('#importClipboardBtn');
-  const manualPasteButton = $('#manualPasteFocusBtn');
-
-  shareButton?.addEventListener('click', () => {
-    markAwaiting();
-  });
-
-  importButton?.addEventListener('click', () => readClipboardAndImport({ silent: false }));
-
-  manualPasteButton?.addEventListener('click', () => {
+  $('#chatgptShareBtn')?.addEventListener('click', markAwaiting);
+  $('#importClipboardBtn')?.addEventListener('click', () => readClipboardAndImport({ silent: false }));
+  $('#manualPasteFocusBtn')?.addEventListener('click', () => {
     const textarea = $('#analysisJson');
     textarea?.focus();
     textarea?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   });
 
-  window.addEventListener('focus', () => tryAutoImportOnReturn());
+  window.addEventListener('focus', tryAutoImportOnReturn);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') tryAutoImportOnReturn();
   });
-
   window.addEventListener('paste', event => {
-    if (!isAwaiting() && !cameFromChatGPT()) return;
+    if (!isAwaiting()) return;
     const text = event.clipboardData?.getData('text/plain') || '';
-    if (looksLikeAnalysisJson(text)) importText(text, 'paste');
+    if (looksLikeAnalysisJson(text)) importText(text);
   });
 
   if (isActionAwaiting()) {
-    setStatus('checking', 'Action結果を待っています。専用GPTで解析後、PWAへ戻ると自動取得します');
-  } else if (cameFromChatGPT()) {
-    setStatus('checking', 'ChatGPTから戻りました。フォールバック結果を確認しています…');
-    tryAutoImportOnReturn({ force: true });
+    setStatus('waiting', '解析結果を待っています。ChatGPTで解析後に表示される「許可」を押し、アプリへ戻ってください');
   } else if (isAwaiting()) {
-    setStatus('ready', 'Action失敗時はGPTのJSON回答をコピーしてPWAへ戻ってください');
+    setStatus('ready', '結果が届かない場合はChatGPTで「許可」が表示されていないか確認してください');
   }
 }
 

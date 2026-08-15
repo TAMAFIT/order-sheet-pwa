@@ -1,9 +1,9 @@
 {
   "name": "order-sheet-pwa",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/lib.test.mjs tests/action-return.test.mjs tests/cloudflare-action-api.test.mjs tests/runtime-config.test.mjs tests/capture-guard.test.mjs tests/review-edit-core.test.mjs && node --check app.js && node --check db.js && node --check ai.js && node --check lib.js && node --check chatgpt-flow.js && node --check action-return.js && node --check action-return-core.js && node --check scan-session.js && node --check runtime-config.js && node --check capture-guard.js && node --check handoff-ui.js && node --check review-edit-core.js && node --check server/cloudflare-worker.js && node --check cloudflare-action-api/src/index.js"
+    "test": "node --test tests/lib.test.mjs tests/action-return.test.mjs tests/cloudflare-action-api.test.mjs tests/runtime-config.test.mjs tests/capture-guard.test.mjs tests/review-edit-core.test.mjs tests/session-history.test.mjs tests/image-orientation.test.mjs && node --check app.js && node --check db.js && node --check ai.js && node --check lib.js && node --check chatgpt-flow.js && node --check action-return.js && node --check action-return-core.js && node --check scan-session.js && node --check runtime-config.js && node --check capture-guard.js && node --check handoff-ui.js && node --check review-edit-core.js && node --check session-history-core.js && node --check image-orientation-core.js && node --check server/cloudflare-worker.js && node --check cloudflare-action-api/src/index.js"
   }
 }

@@ -1,6 +1,7 @@
 import { APP_SCHEMA_VERSION, normalizeText, uid } from './lib.js';
 
 const STORAGE_KEY = 'order-sheet-pwa-db-v1';
+const MAX_SESSIONS = 60;
 
 const now = () => new Date().toISOString();
 
@@ -24,6 +25,12 @@ function createEmptyDb() {
     locationHistory: [],
     sessions: [],
     writers: [],
+    catalogMeta: {
+      provider: 'none',
+      itemCount: 0,
+      importedAt: null,
+      storage: 'separate-indexeddb'
+    },
     settings: {
       analysisMode: 'chatgpt',
       backendEndpoint: '',
@@ -75,8 +82,9 @@ function sanitizeDb(candidate) {
     aliases: Array.isArray(candidate.aliases) ? candidate.aliases : [],
     recognitionHistory: Array.isArray(candidate.recognitionHistory) ? candidate.recognitionHistory : [],
     locationHistory: Array.isArray(candidate.locationHistory) ? candidate.locationHistory : [],
-    sessions: Array.isArray(candidate.sessions) ? candidate.sessions : [],
+    sessions: Array.isArray(candidate.sessions) ? candidate.sessions.slice(0, MAX_SESSIONS) : [],
     writers: Array.isArray(candidate.writers) ? candidate.writers : [],
+    catalogMeta: { ...base.catalogMeta, ...(candidate.catalogMeta || {}) },
     settings: { ...base.settings, ...(candidate.settings || {}) }
   };
 }
@@ -218,11 +226,28 @@ export class OrderDb {
   }
 
   saveSession(session) {
+    if (!session?.id) return null;
     const index = this.data.sessions.findIndex(s => s.id === session.id);
-    if (index >= 0) this.data.sessions[index] = { ...this.data.sessions[index], ...session, updatedAt: now() };
-    else this.data.sessions.unshift({ ...session, createdAt: now(), updatedAt: now() });
-    if (this.data.sessions.length > 200) this.data.sessions.length = 200;
+    if (index >= 0) {
+      this.data.sessions[index] = { ...this.data.sessions[index], ...session, updatedAt: now() };
+      const [updated] = this.data.sessions.splice(index, 1);
+      this.data.sessions.unshift(updated);
+    } else {
+      this.data.sessions.unshift({ ...session, createdAt: now(), updatedAt: now() });
+    }
+    if (this.data.sessions.length > MAX_SESSIONS) this.data.sessions.length = MAX_SESSIONS;
     this.save();
+    return this.data.sessions[0];
+  }
+
+  getSession(id) {
+    return this.data.sessions.find(session => session.id === id) || null;
+  }
+
+  updateCatalogMeta(patch = {}) {
+    this.data.catalogMeta = { ...this.data.catalogMeta, ...patch };
+    this.save();
+    return this.data.catalogMeta;
   }
 
   updateSettings(patch) {

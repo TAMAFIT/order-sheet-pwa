@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#2e6b45">
-  <meta name="description" content="手書き注文票を商品別に集計し、表記揺れと売り場情報を使うほど学習するPWA">
+  <meta name="description" content="手書き注文票を読み取り、確認して商品別に集計する業務アプリ">
   <title>手書き注文 集計アシスタント</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icon.svg" type="image/svg+xml">
@@ -19,7 +19,7 @@
         <div class="brand-mark">集</div>
         <div>
           <h1>手書き注文 集計アシスタント</h1>
-          <p>読む・確認する・覚える・集計する</p>
+          <p>撮る・確認する・集計する</p>
         </div>
       </div>
       <button id="installBtn" class="install-btn" hidden>アプリ化</button>
@@ -28,7 +28,7 @@
     <section class="stats-strip" aria-label="学習データ統計">
       <div class="stat"><strong id="productCount">0</strong><span>登録商品</span></div>
       <div class="stat"><strong id="aliasCount">0</strong><span>表記パターン</span></div>
-      <div class="stat"><strong id="learnedCount">0</strong><span>人間確認履歴</span></div>
+      <div class="stat"><strong id="learnedCount">0</strong><span>確認履歴</span></div>
     </section>
 
     <nav class="tabs" aria-label="メインメニュー">
@@ -38,86 +38,75 @@
     </nav>
 
     <section id="tab-scan" class="tab-panel active">
-      <section class="card">
+      <section id="resumeCard" class="resume-card" hidden></section>
+
+      <section id="captureCard" class="card capture-card">
         <span class="eyebrow">STEP 1</span>
-        <h2>注文票を入れる</h2>
-        <p class="card-sub">スマホで撮影、またはギャラリーから複数枚まとめて選択できます。</p>
+        <h2>注文票を撮る</h2>
+        <p class="card-sub">注文票全体が入るように撮影してください。</p>
         <label class="upload-box">
           <span class="upload-icon">▣</span>
           <span class="upload-title">注文票を撮影・選択</span>
-          <span class="upload-help">JPG / PNG / HEIC など</span>
+          <span class="upload-help">横向きの写真は送信時に自動で縦向きへ整えます</span>
           <input id="imageInput" type="file" accept="image/*" capture="environment" multiple>
         </label>
         <div class="selection-row"><span>選択中</span><span id="selectedCount" class="pill">0枚</span></div>
         <div id="filePreviews" class="previews"></div>
-        <div class="field">
-          <label for="writerTag">記入者タグ（任意）</label>
-          <input id="writerTag" type="text" placeholder="例：担当A / 午前担当">
-        </div>
-        <p class="hint">記入者タグを付けると、その人特有の略し方・書き方を将来の候補順位に反映できます。</p>
+        <button id="rotateImageBtn" class="secondary-btn rotate-image-btn" type="button" hidden>逆さまなら180°回転</button>
+        <input id="writerTag" type="hidden" value="">
       </section>
 
-      <section class="card">
+      <section id="step2Card" class="card step2-card">
         <span class="eyebrow">STEP 2</span>
         <h2>ChatGPTで読み取る</h2>
-        <p class="card-sub">無料ChatGPTルートでは、画像に解析指示を埋め込んで共有します。回答をコピーした後は、ChatGPTが出す「集計アプリに戻る」リンクからすぐ戻れます。</p>
+        <p class="card-sub short-copy">次はこの4つだけです。</p>
 
-        <div class="guided-flow">
-          <article class="flow-step">
-            <div class="flow-step-number">1</div>
-            <div>
-              <h3>注文票をChatGPTへ送る</h3>
-              <p>ボタンを押したら共有先でChatGPTを選び、そのまま送信してください。解析指示は共有画像の上部に埋め込まれています。</p>
-            </div>
-            <div class="flow-action">
-              <button id="chatgptShareBtn" class="primary-btn flow-primary">ChatGPTへ送る</button>
-            </div>
+        <div class="handoff-visual" aria-label="ChatGPTでの操作手順">
+          <article class="visual-step primary-step">
+            <div class="visual-icon">GPT</div>
+            <div><strong>1. ChatGPTを開く</strong><span>下のボタンをタップ</span></div>
+            <button id="chatgptShareBtn" class="primary-btn flow-primary">ChatGPTを開く</button>
           </article>
-
-          <article class="flow-step">
-            <div class="flow-step-number">2</div>
-            <div>
-              <h3>回答をコピー → 戻るリンクを押す</h3>
-              <p>解析が終わったら回答の「コピー」を1回押し、その直下の「集計アプリに戻る」をタップしてください。</p>
-              <p class="mini-note">ホーム画面へ戻ってPWAを探す操作を減らすため、ChatGPTの回答に戻るリンクを付けるよう指示しています。</p>
-            </div>
+          <article class="visual-step">
+            <div class="visual-icon">＋</div>
+            <div><strong>2. 画像を貼る</strong><span>入力欄を長押しして貼り付け</span></div>
           </article>
-
-          <article id="returnFlowCard" class="flow-step return-card" data-state="idle">
-            <div class="flow-step-number">3</div>
-            <div>
-              <h3>戻ったら自動取り込み</h3>
-              <p>PWAが前面に戻ると、コピー済みJSONの自動取り込みを試します。端末の制限で止まった場合だけ下のボタンを1回押してください。</p>
-              <div id="chatgptFlowStatus" class="return-status" data-state="idle">まだChatGPTへ送っていません</div>
-            </div>
-            <div class="flow-action">
-              <button id="importClipboardBtn" class="primary-btn">コピー結果を取り込む</button>
-            </div>
+          <article class="visual-step">
+            <div class="visual-icon">↑</div>
+            <div><strong>3. 送信する</strong><span>画像が入ったら送信</span></div>
+          </article>
+          <article class="visual-step approval-step">
+            <div class="visual-icon">✓</div>
+            <div><strong>4. 最後に「許可」</strong><span>解析後に必ず表示されます</span></div>
           </article>
         </div>
 
-        <div class="automatic-card">
-          <h3>完全自動モード</h3>
-          <p>安全なAIバックエンドを接続すると、ChatGPTアプリへの往復自体をなくして「撮影 → 解析 → 確認」までPWA内だけで完結できます。</p>
-          <button id="backendAnalyzeBtn" class="secondary-btn">バックエンドで自動解析</button>
-        </div>
+        <article id="returnFlowCard" class="return-card simple-return-card" data-state="idle">
+          <div>
+            <strong>終わったらアプリへ戻る</strong>
+            <p>アプリへ戻ると解析結果を自動で確認します。</p>
+            <div id="chatgptFlowStatus" class="return-status" data-state="idle">まだChatGPTへ送っていません</div>
+          </div>
+          <button id="checkActionResultBtn" class="secondary-btn" type="button">結果をもう一度確認</button>
+        </article>
 
         <details class="fallback-panel">
-          <summary>うまく取り込めない場合 / 手動入力</summary>
+          <summary>トラブル時の復旧</summary>
+          <p class="mini-note">通常は使いません。ChatGPT側で送信に失敗した場合だけ使います。</p>
           <div class="field">
-            <label for="analysisJson">ChatGPTの回答</label>
-            <textarea id="analysisJson" spellcheck="false" placeholder='ChatGPTのJSON回答をここへ貼り付け'></textarea>
+            <label for="analysisJson">解析結果JSON</label>
+            <textarea id="analysisJson" spellcheck="false" placeholder="ChatGPTのバックアップJSONを貼り付け"></textarea>
           </div>
           <div class="compact-tools">
             <button id="manualPasteFocusBtn" class="secondary-btn">貼り付け欄を開く</button>
-            <button id="parseResultBtn" class="primary-btn">この内容を読み込む</button>
+            <button id="parseResultBtn" class="primary-btn">この内容を復元</button>
           </div>
-          <div class="compact-tools">
-            <button id="copyPromptBtn" class="secondary-btn">プロンプトだけコピー</button>
+          <div class="compact-tools advanced-tools">
+            <button id="copyPromptBtn" class="secondary-btn">復旧用指示をコピー</button>
             <button id="sampleBtn" class="secondary-btn">サンプルで試す</button>
           </div>
           <details>
-            <summary class="text-button">使用する解析プロンプトを見る</summary>
+            <summary class="text-button">復旧用の解析指示を見る</summary>
             <div class="field"><textarea id="promptPreview" readonly></textarea></div>
           </details>
         </details>
@@ -125,7 +114,7 @@
 
       <section id="reviewArea" class="card" hidden>
         <div class="section-head">
-          <div><span class="eyebrow">STEP 3</span><h2>紙の順に全件確認</h2></div>
+          <div><span class="eyebrow">STEP 3</span><h2>注文内容を確認</h2></div>
           <span id="reviewBadge" class="badge">0/0</span>
         </div>
         <p id="reviewSummary" class="card-sub"></p>
@@ -133,7 +122,7 @@
           <div class="review-progress-track"><div id="reviewProgressBar" class="review-progress-bar"></div></div>
           <strong id="reviewProgressText">0%</strong>
         </div>
-        <div class="review-guide">通常は「確定」を押すだけ。商品名・数量・統合先を変える時だけ「編集」を開きます。</div>
+        <div class="review-guide">数量は − / ＋ ですぐ変更できます。商品名を直す時だけ「編集」を使います。</div>
         <div id="reviewList"></div>
         <button id="finishReviewBtn" class="primary-btn finish-review-btn" disabled>確認待ち</button>
       </section>
@@ -141,7 +130,7 @@
       <section id="resultArea" class="card" hidden>
         <span class="eyebrow">STEP 4</span>
         <h2>商品別集計・ピッキング表</h2>
-        <p class="card-sub">全件確定した明細だけを商品IDで統合して数量を自動加算します。A〜Eの売り場変更はDBへ記憶されます。</p>
+        <p class="card-sub">確定した商品を自動でまとめて数量を合算します。</p>
         <div class="totals-summary">
           <div class="summary-box"><strong id="totalProductCount">0</strong><span>商品種類</span></div>
           <div class="summary-box"><strong id="totalQuantity">0</strong><span>総数量</span></div>
@@ -152,13 +141,30 @@
           <button id="printBtn" class="primary-btn">印刷する</button>
         </div>
       </section>
+
+      <section id="historyArea" class="card history-card">
+        <div class="section-head">
+          <div><span class="eyebrow">HISTORY</span><h2>最近の読み取り</h2></div>
+        </div>
+        <p class="card-sub">再読み込みしても、ここから確認途中の作業を開けます。</p>
+        <div id="recentSessions" class="history-list"></div>
+        <details class="recovery-panel">
+          <summary>解析結果が消えた時の復元</summary>
+          <button id="restoreLastCloudBtn" class="primary-btn recovery-primary" type="button">直前の解析を復元</button>
+          <div class="field recovery-id-field">
+            <label for="restoreScanIdInput">復元IDが分かる場合</label>
+            <input id="restoreScanIdInput" type="text" autocomplete="off" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+          </div>
+          <button id="restoreScanIdBtn" class="secondary-btn" type="button">復元IDから読み込む</button>
+        </details>
+      </section>
     </section>
 
     <section id="tab-products" class="tab-panel">
       <section class="card">
         <span class="eyebrow">LEARNING DATABASE</span>
         <h2>商品DB</h2>
-        <p class="card-sub">同じ商品でも違う書き方を、人間が一度教えると次回以降の候補順位に使います。</p>
+        <p class="card-sub">実際に確認した商品と表記の違いを学習します。</p>
         <div class="search-row">
           <input id="productSearch" type="search" placeholder="商品名・別表記を検索">
           <button id="addProductBtn" class="small-btn">＋商品</button>
@@ -175,33 +181,40 @@
           <div class="data-stat"><strong id="dataProductCount">0</strong><span>商品</span></div>
           <div class="data-stat"><strong id="dataAliasCount">0</strong><span>表記</span></div>
           <div class="data-stat"><strong id="dataHistoryCount">0</strong><span>認識履歴</span></div>
-          <div class="data-stat"><strong id="dataSessionCount">0</strong><span>集計履歴</span></div>
+          <div class="data-stat"><strong id="dataSessionCount">0</strong><span>読み取り履歴</span></div>
         </div>
       </section>
 
-      <section class="card">
+      <section class="card catalog-ready-card">
+        <h2>外部商品カタログ</h2>
+        <p class="card-sub">AEON綾川の商品カタログは、学習DBとは分けて別領域へ保存する設計です。大量の商品を追加しても、日々の訂正履歴を膨らませません。</p>
+        <div class="catalog-count"><strong id="catalogItemCount">0</strong><span>カタログ商品（統合待ち）</span></div>
+      </section>
+
+      <section class="card advanced-card">
         <h2>AIバックエンド設定</h2>
-        <p class="card-sub">本番移行時にOpenAI / Gemini等を安全なサーバー側から呼ぶための接続口です。</p>
-        <div class="security-note">APIキーはこのPWAに入力しません。キーはGASのScript PropertiesやCloud側Secretへ置き、この画面にはHTTPSの中継URLだけを設定します。</div>
+        <p class="card-sub">通常は使いません。別のAI解析サーバーを接続する場合の設定です。</p>
         <div class="field">
           <label for="providerLabel">表示名</label>
-          <input id="providerLabel" type="text" placeholder="例：Gemini 自動解析">
+          <input id="providerLabel" type="text" placeholder="例：自動解析">
         </div>
         <div class="field">
           <label for="backendEndpoint">HTTPSバックエンドURL</label>
           <input id="backendEndpoint" type="url" inputmode="url" placeholder="https://...">
         </div>
-        <button id="saveSettingsBtn" class="primary-btn">接続設定を保存</button>
+        <div class="button-row">
+          <button id="saveSettingsBtn" class="secondary-btn">接続設定を保存</button>
+          <button id="backendAnalyzeBtn" class="secondary-btn">バックエンドで自動解析</button>
+        </div>
       </section>
 
       <section class="card">
         <h2>移植・バックアップ</h2>
-        <p class="card-sub">商品名、別表記、記入者ごとの癖、売り場履歴、訂正履歴を1つのJSONとして持ち出せます。</p>
+        <p class="card-sub">商品名、別表記、訂正履歴、読み取り履歴を1つのJSONとして持ち出せます。</p>
         <div class="button-row">
           <button id="exportBtn" class="secondary-btn">DBを書き出す</button>
           <label class="primary-btn" style="text-align:center">DBを読み込む<input id="importInput" type="file" accept="application/json" hidden></label>
         </div>
-        <p class="hint">クライアント納品時はこのJSONを新しい環境へ読み込めば、育てた辞書をそのまま移せます。</p>
       </section>
 
       <section class="card">
@@ -211,7 +224,7 @@
       </section>
     </section>
 
-    <p class="footer-note">このプロトタイプは画像自体をDBへ保存しません。商品辞書・訂正結果・売り場情報のみ端末内に保持します。</p>
+    <p class="footer-note">画像は履歴に保存しません。商品辞書・訂正結果・読み取り状態だけを端末内に保持します。</p>
   </main>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <script type="module" src="./app.js"></script>
