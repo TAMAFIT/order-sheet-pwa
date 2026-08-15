@@ -1,4 +1,6 @@
 import { makeAnalysisPrompt, parseAnalysisPayload } from './lib.js';
+import { ensureActiveScan, getActiveScanId } from './scan-session.js';
+import './action-return.js';
 
 export function productsForPrompt(db) {
   return db.products.map(product => ({
@@ -8,25 +10,16 @@ export function productsForPrompt(db) {
   }));
 }
 
-function currentReturnUrl() {
-  try {
-    const url = new URL(window.location.href);
-    url.search = '?from=chatgpt';
-    url.hash = '';
-    return url.toString();
-  } catch {
-    return '';
-  }
-}
-
 export function buildPrompt(db) {
-  return makeAnalysisPrompt(productsForPrompt(db), currentReturnUrl());
+  const scanId = ensureActiveScan().scanId;
+  const base = makeAnalysisPrompt(productsForPrompt(db), '');
+  return `${base}\n\nSCAN_ID: ${scanId}\nこのGPTに submitScanResult Action がある場合は、解析完了後に必ず同じSCAN_IDでActionを実行して結果を保存してください。Actionが使えない・失敗・拒否された場合は、上記JSONだけを返してください。`;
 }
 
-function embeddedSharePrompt() {
-  const returnUrl = currentReturnUrl();
+function embeddedSharePrompt(scanId) {
   return [
     'AIへの指示（この上部は注文内容ではありません）',
+    `SCAN_ID: ${scanId}`,
     '下の手書き注文票を、紙の上から順番に1明細ずつ読み取ってください。',
     '・同じ商品でも統合・合算しない',
     '・orderを1,2,3...で付ける',
@@ -36,11 +29,14 @@ function embeddedSharePrompt() {
     '・「2個入」「2L」など商品名中の数字と注文数量を混同しない',
     '・丸で囲まれた数字は注文数量',
     '・読めない場合は confidence を下げる',
-    '・最初にJSONコードブロック1つ。説明文は不要',
-    '{"items":[{"order":1,"place":"","time":"","person":"","name":"商品名","quantity":2,"confidence":0.92,"cancelled":false,"note":""}]}',
-    returnUrl ? `・JSONの直後にこのリンクをそのまま付ける: [集計アプリに戻る](${returnUrl})` : '',
+    '・同じ商品に見えてもこの段階では統合しない',
+    '・このGPTに submitScanResult Action がある場合、解析後に必ず実行する',
+    '・Actionへ渡す scan_id は上記SCAN_IDと完全一致させる',
+    '・Actionへ渡すitemsは下記JSON形式と同じ構造にする',
+    '・Actionが無い/失敗/拒否された場合は、最初にJSONコードブロック1つだけ返す',
+    '{"scan_id":"SCAN_ID","status":"completed","items":[{"order":1,"place":"","time":"","person":"","name":"商品名","quantity":2,"confidence":0.92,"cancelled":false,"note":""}]}',
     '↓ ここから下が注文票です ↓'
-  ].filter(Boolean).join('\n');
+  ].join('\n');
 }
 
 function loadImage(file) {
@@ -81,7 +77,7 @@ function wrapLines(ctx, text, maxWidth) {
   return lines;
 }
 
-async function makePromptEmbeddedImage(file, index) {
+async function makePromptEmbeddedImage(file, index, scanId) {
   const img = await loadImage(file);
   const maxImageWidth = 2400;
   const sourceWidth = img.naturalWidth || img.width;
@@ -94,14 +90,14 @@ async function makePromptEmbeddedImage(file, index) {
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('この端末では共有用画像を作成できません');
 
-  const fontSize = Math.max(28, Math.min(48, Math.round(imageWidth * 0.02)));
-  const lineHeight = Math.round(fontSize * 1.42);
+  const fontSize = Math.max(26, Math.min(46, Math.round(imageWidth * 0.019)));
+  const lineHeight = Math.round(fontSize * 1.4);
   const sidePad = Math.round(imageWidth * 0.035);
-  const topPad = Math.round(fontSize * 0.85);
+  const topPad = Math.round(fontSize * 0.8);
   const textWidth = imageWidth - sidePad * 2;
 
   ctx.font = `700 ${fontSize}px system-ui, -apple-system, BlinkMacSystemFont, "Noto Sans JP", sans-serif`;
-  const lines = wrapLines(ctx, embeddedSharePrompt(), textWidth);
+  const lines = wrapLines(ctx, embeddedSharePrompt(scanId), textWidth);
   const headerHeight = topPad * 2 + lines.length * lineHeight;
 
   canvas.width = imageWidth;
@@ -114,7 +110,7 @@ async function makePromptEmbeddedImage(file, index) {
 
   let y = topPad;
   lines.forEach((line, lineIndex) => {
-    if (lineIndex === 0 || line.startsWith('↓')) ctx.fillStyle = '#0b5d35';
+    if (lineIndex === 0 || line.startsWith('SCAN_ID:') || line.startsWith('↓')) ctx.fillStyle = '#0b5d35';
     else ctx.fillStyle = '#111111';
     ctx.fillText(line, sidePad, y);
     y += lineHeight;
@@ -126,32 +122,33 @@ async function makePromptEmbeddedImage(file, index) {
     canvas.toBlob(result => result ? resolve(result) : reject(new Error('共有用画像の生成に失敗しました')), 'image/jpeg', 0.94);
   });
 
-  return new File([blob], `order-sheet-with-instructions-${index + 1}.jpg`, { type: 'image/jpeg' });
+  return new File([blob], `order-sheet-${scanId.slice(0, 8)}-${index + 1}.jpg`, { type: 'image/jpeg' });
 }
 
-async function buildBundledShareFiles(files) {
+async function buildBundledShareFiles(files, scanId) {
   const sourceFiles = Array.from(files || []);
   const bundled = [];
   for (let i = 0; i < sourceFiles.length; i += 1) {
-    bundled.push(await makePromptEmbeddedImage(sourceFiles[i], i));
+    bundled.push(await makePromptEmbeddedImage(sourceFiles[i], i, scanId));
   }
   return bundled;
 }
 
 export async function shareToChatGPT(files, prompt) {
   const sourceFiles = Array.from(files || []);
+  const scanId = getActiveScanId() || ensureActiveScan().scanId;
 
   if (navigator.share && sourceFiles.length) {
     try {
-      const bundledFiles = await buildBundledShareFiles(sourceFiles);
+      const bundledFiles = await buildBundledShareFiles(sourceFiles, scanId);
       const canShareBundled = !navigator.canShare || navigator.canShare({ files: bundledFiles });
       if (canShareBundled) {
         try { await navigator.clipboard?.writeText?.(prompt); } catch {}
         await navigator.share({
-          title: '注文票を解析',
+          title: `注文票を解析 ${scanId.slice(0, 8)}`,
           files: bundledFiles
         });
-        return { method: 'share', bundled: true };
+        return { method: 'share', bundled: true, scanId };
       }
     } catch (error) {
       console.warn('Bundled share image failed; falling back to normal share.', error);
@@ -160,16 +157,16 @@ export async function shareToChatGPT(files, prompt) {
 
   if (navigator.share && (!sourceFiles.length || !navigator.canShare || navigator.canShare({ files: sourceFiles }))) {
     await navigator.share({
-      title: '注文票を解析',
+      title: `注文票を解析 ${scanId.slice(0, 8)}`,
       text: prompt,
       ...(sourceFiles.length ? { files: sourceFiles } : {})
     });
-    return { method: 'share', bundled: false };
+    return { method: 'share', bundled: false, scanId };
   }
 
   await navigator.clipboard.writeText(prompt);
   window.open('https://chatgpt.com/', '_blank', 'noopener,noreferrer');
-  return { method: 'clipboard', bundled: false };
+  return { method: 'clipboard', bundled: false, scanId };
 }
 
 async function fileToDataUrl(file) {
