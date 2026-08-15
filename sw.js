@@ -1,4 +1,4 @@
-const CACHE = 'order-sheet-pwa-v8';
+const CACHE = 'order-sheet-pwa-v9';
 const ASSETS = [
   './',
   './index.html',
