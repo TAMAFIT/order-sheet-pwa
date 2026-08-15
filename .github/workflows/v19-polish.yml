@@ -1,0 +1,53 @@
+name: Polish instant result corrections
+
+on:
+  push:
+    branches:
+      - feat/instant-aggregate-results-v19
+    paths:
+      - .github/workflows/v19-polish.yml
+
+permissions:
+  contents: write
+
+jobs:
+  polish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Patch correction behavior
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('app.js')
+          s = p.read_text()
+          old = """  } else if (action === 'qty-minus' || action === 'qty-plus') {\n    markDirty(item);\n    item.quantity = Math.max(0, Number(item.quantity || 0) + (action === 'qty-plus' ? 1 : -1));\n    renderReview();\n  }"""
+          new = """  } else if (action === 'qty-minus' || action === 'qty-plus') {\n    markDirty(item);\n    item.quantity = Math.max(0, Number(item.quantity || 0) + (action === 'qty-plus' ? 1 : -1));\n    if (/数量.*(判読|不明|困難)|(判読|不明|困難).*数量/u.test(String(item.note || ''))) item.note = '';\n    item.confidence = Math.max(Number(item.confidence || 0), 0.95);\n    item.manualCorrected = true;\n    renderReview();\n  }"""
+          if old not in s:
+              raise SystemExit('quantity branch not found')
+          s = s.replace(old, new, 1)
+          old = """function setNewProduct(item) {\n  if (!item) return;\n  markDirty(item);\n  item.matchedProductId = null;\n  item.forceNew = true;\n  state.expanded.add(item.id);\n  renderReview();\n}"""
+          new = """function setNewProduct(item) {\n  if (!item) return;\n  markDirty(item);\n  item.matchedProductId = null;\n  item.forceNew = true;\n  item.confidence = 1;\n  item.note = '';\n  item.manualCorrected = true;\n  state.expanded.add(item.id);\n  renderReview();\n}"""
+          if old not in s:
+              raise SystemExit('setNewProduct not found')
+          s = s.replace(old, new, 1)
+          old = """  if ($('#needsReviewCount')) $('#needsReviewCount').textContent = attention.length;\n\n  const attentionPanel"""
+          new = """  if ($('#needsReviewCount')) $('#needsReviewCount').textContent = attention.length;\n  if ($('#attentionCountBadge')) $('#attentionCountBadge').textContent = attention.length;\n\n  const attentionPanel"""
+          if old not in s:
+              raise SystemExit('attention count target not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+          npm test
+          git diff --check
+      - name: Commit
+        run: |
+          rm .github/workflows/v19-polish.yml
+          git add -A
+          git config user.name "TAMAFIT"
+          git config user.email "tamafit.takamatsu@gmail.com"
+          git commit -m "Polish instant result corrections"
+          git push origin HEAD:feat/instant-aggregate-results-v19
