@@ -99,16 +99,20 @@ export function resolveRecognitionItem(item, db, writerTag = '') {
   const confidence = Number.isFinite(aiConfidence)
     ? Math.max(0, Math.min(1, Math.max(best?.score || 0, aiConfidence * 0.85)))
     : (best?.score || 0);
-  let status = 'unknown';
-  if (best?.score >= 0.93) status = 'auto';
-  else if (best?.score >= 0.64) status = 'review';
   return {
     id: uid('recognition'),
+    order: Number.isFinite(Number(item.order)) ? Number(item.order) : 0,
+    place: String(item.place || item.facility || '').trim(),
+    time: String(item.time || '').trim(),
+    person: String(item.person || item.customer || item.nameOfPerson || '').trim(),
     rawName,
     quantity,
     confidence,
-    matchedProductId: best?.product.id || null,
-    status,
+    matchedProductId: best?.score >= 0.93 ? best.product.id : null,
+    suggestedProductId: best?.product.id || null,
+    suggestedScore: best?.score || 0,
+    status: 'pending',
+    forceNew: false,
     candidates: candidates.map(({ product, score }) => ({
       productId: product.id,
       canonicalName: product.canonicalName,
@@ -124,7 +128,7 @@ export function aggregateRecognitions(recognitions, products) {
   const productMap = new Map(products.map(p => [p.id, p]));
   const totals = new Map();
   for (const item of recognitions) {
-    if (item.cancelled || !item.matchedProductId || item.quantity <= 0) continue;
+    if (item.status !== 'confirmed' || item.cancelled || !item.matchedProductId || item.quantity <= 0) continue;
     const product = productMap.get(item.matchedProductId);
     if (!product) continue;
     const current = totals.get(product.id) || {
@@ -150,21 +154,29 @@ export function parseAnalysisPayload(input) {
   if (!Array.isArray(items)) throw new Error('JSONに items 配列がありません');
   return items
     .filter(item => item && typeof item === 'object')
-    .map(item => ({
+    .map((item, index) => ({
+      order: Number.isFinite(Number(item.order)) ? Number(item.order) : index + 1,
+      place: String(item.place || item.facility || '').trim(),
+      time: String(item.time || '').trim(),
+      person: String(item.person || item.customer || item.nameOfPerson || '').trim(),
       name: String(item.name || item.product || '').trim(),
       quantity: Number(item.quantity ?? item.qty ?? 1),
       confidence: item.confidence == null ? undefined : Number(item.confidence),
       cancelled: Boolean(item.cancelled),
       note: String(item.note || '')
     }))
-    .filter(item => item.name && Number.isFinite(item.quantity));
+    .filter(item => item.name && Number.isFinite(item.quantity))
+    .sort((a, b) => a.order - b.order);
 }
 
-export function makeAnalysisPrompt(productContext = []) {
+export function makeAnalysisPrompt(productContext = [], returnUrl = '') {
   const context = productContext.slice(0, 300).map(p => ({
     id: p.id,
     name: p.canonicalName,
     aliases: p.aliases || []
   }));
-  return `この画像は個人別の手書き注文票です。注文の商品名と数量だけを読み取り、同じ商品はまだ統合せず、記載単位ごとにJSONで返してください。\n\n重要ルール:\n- 個人名、施設名、時間、金額は不要。\n- 取消線で消された商品は cancelled=true。\n- 商品名中の数字（例: 2個入、2L）と注文数量を混同しない。\n- 丸で囲まれた数字は注文数量として扱う。\n- 読めない場合は勝手に断定せず confidence を下げる。\n- 出力は説明文なし、JSONのみ。\n\n形式:\n{\n  "items": [\n    {"name":"商品名","quantity":2,"confidence":0.92,"cancelled":false,"note":""}\n  ]\n}\n\n既知の商品辞書（参考。無理に合わせない）:\n${JSON.stringify(context, null, 2)}`;
+  const returnInstruction = returnUrl
+    ? `\n解析後、JSONコードブロックの直後にこのリンクをそのまま1行だけ付けてください。\n[集計アプリに戻る](${returnUrl})`
+    : '';
+  return `この画像は個人別の手書き注文票です。紙に書かれている順番を崩さず、各注文明細を1件ずつJSONで返してください。まだ同じ商品を統合・合算しないでください。\n\n重要ルール:\n- 紙の上から下、同じ行では左から右の順番を保ち order を1,2,3...で付ける。\n- 施設名・売り場名など見出しが読める場合は place に入れる。\n- 時間が読める場合は time に入れる。\n- 各個人名は person に入れる。読めなければ空文字でよい。\n- 商品名は name、注文数量は quantity。\n- 取消線で消された商品は cancelled=true。\n- 商品名中の数字（例: 2個入、2L）と注文数量を混同しない。\n- 丸で囲まれた数字は注文数量として扱う。\n- 読めない場合は勝手に断定せず confidence を下げる。\n- 同じ商品に見えてもこの段階では統合しない。\n- 出力の最初は必ずJSONコードブロック1つ。余計な説明は不要。\n\n形式:\n\`\`\`json\n{\n  "items": [\n    {"order":1,"place":"施設名","time":"10:40〜11:05","person":"個人名","name":"商品名","quantity":2,"confidence":0.92,"cancelled":false,"note":""}\n  ]\n}\n\`\`\`${returnInstruction}\n\n既知の商品辞書（参考。無理に合わせない）:\n${JSON.stringify(context, null, 2)}`;
 }
