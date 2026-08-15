@@ -68,7 +68,7 @@ function sanitizeDb(candidate) {
   if (!candidate || typeof candidate !== 'object') throw new Error('バックアップ形式が不正です');
   if (Number(candidate.schemaVersion) !== APP_SCHEMA_VERSION) throw new Error(`未対応のDBバージョンです: ${candidate.schemaVersion}`);
   const base = createEmptyDb();
-  const db = {
+  return {
     ...base,
     ...candidate,
     products: Array.isArray(candidate.products) ? candidate.products : [],
@@ -79,7 +79,6 @@ function sanitizeDb(candidate) {
     writers: Array.isArray(candidate.writers) ? candidate.writers : [],
     settings: { ...base.settings, ...(candidate.settings || {}) }
   };
-  return db;
 }
 
 export class OrderDb {
@@ -105,7 +104,9 @@ export class OrderDb {
   }
 
   snapshot() {
-    return structuredClone ? structuredClone(this.data) : JSON.parse(JSON.stringify(this.data));
+    return typeof globalThis.structuredClone === 'function'
+      ? globalThis.structuredClone(this.data)
+      : JSON.parse(JSON.stringify(this.data));
   }
 
   exportJson() {
@@ -182,7 +183,8 @@ export class OrderDb {
   mapRecognitionToProduct(recognition, productId, { writerTag = '', sessionId = '' } = {}) {
     const product = this.data.products.find(p => p.id === productId);
     if (!product) throw new Error('選択した商品が見つかりません');
-    const wasDifferent = recognition.matchedProductId && recognition.matchedProductId !== productId;
+    const previousProductId = recognition.matchedProductId || null;
+    const previousStatus = recognition.status;
     this.addAlias(productId, recognition.rawName, {
       source: 'human-correction', verified: true, writerTag, incrementHit: 1, persist: false
     });
@@ -192,9 +194,10 @@ export class OrderDb {
       id: uid('history'), sessionId, rawName: recognition.rawName, normalized: normalizeText(recognition.rawName),
       quantity: recognition.quantity, confidence: recognition.confidence,
       chosenProductId: productId, suggestedProductId: recognition.candidates?.[0]?.productId || null,
-      corrected: Boolean(wasDifferent || recognition.status === 'unknown'), writerTag: String(writerTag || '').trim(),
-      status: 'confirmed', createdAt: now()
+      corrected: Boolean(previousStatus !== 'auto' || previousProductId !== productId),
+      writerTag: String(writerTag || '').trim(), status: 'confirmed', createdAt: now()
     });
+    if (this.data.recognitionHistory.length > 4000) this.data.recognitionHistory.splice(0, this.data.recognitionHistory.length - 4000);
     this.save();
     return product;
   }
