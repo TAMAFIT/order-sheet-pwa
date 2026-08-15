@@ -1,3 +1,5 @@
+import './gallery-picker-v16.js';
+
 const ACTIVE_SCAN_KEY = 'order-sheet-active-scan-v1';
 const ACTION_AWAITING_KEY = 'order-sheet-action-awaiting-v1';
 const LEGACY_AWAITING_KEY = 'order-sheet-awaiting-chatgpt';

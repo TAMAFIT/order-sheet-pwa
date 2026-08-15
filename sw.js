@@ -1,4 +1,4 @@
-const CACHE = 'order-sheet-pwa-v15';
+const CACHE = 'order-sheet-pwa-v16';
 const ASSETS = [
   './',
   './index.html',
@@ -17,6 +17,7 @@ const ASSETS = [
   './image-orientation-core.js',
   './capture-multishot-core.js',
   './capture-ui.js',
+  './gallery-picker-v16.js',
   './force-update-core.js',
   './force-update.js',
   './chatgpt-flow.js',
