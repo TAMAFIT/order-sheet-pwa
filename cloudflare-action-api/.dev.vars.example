@@ -1,0 +1,2 @@
+# Deploy to Cloudflare will ask for this secret. Use a long random value and put the SAME value in Custom GPT Action authentication.
+ACTION_API_KEY=replace-with-a-long-random-secret
