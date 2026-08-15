@@ -1,6 +1,35 @@
 import { buildFreshUrl, isAppCacheName, isAppServiceWorkerRegistration } from './force-update-core.js';
 
-const button = document.querySelector('#forceUpdateBtn');
+function ensureButton() {
+  let button = document.querySelector('#forceUpdateBtn');
+  if (button) return button;
+  const topbar = document.querySelector('.topbar');
+  if (!topbar) return null;
+
+  let actions = topbar.querySelector('.topbar-actions');
+  if (!actions) {
+    actions = document.createElement('div');
+    actions.className = 'topbar-actions';
+    const install = topbar.querySelector('#installBtn');
+    if (install) {
+      install.insertAdjacentElement('beforebegin', actions);
+      actions.appendChild(install);
+    } else {
+      topbar.appendChild(actions);
+    }
+  }
+
+  button = document.createElement('button');
+  button.id = 'forceUpdateBtn';
+  button.type = 'button';
+  button.className = 'force-update-btn';
+  button.textContent = '最新版を読み込む';
+  button.title = '学習データを消さずに、アプリ本体だけ最新版へ更新します';
+  actions.prepend(button);
+  return button;
+}
+
+const button = ensureButton();
 
 async function clearAppCaches() {
   if (!('caches' in globalThis)) return;
