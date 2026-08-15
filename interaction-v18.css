@@ -1,0 +1,5 @@
+/* Mobile app interaction guard: normal UI text/callouts are not selectable; editable text fields stay editable. */
+.app-shell,.app-shell *{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.app-shell input,.app-shell textarea,.app-shell [contenteditable="true"]{-webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
+.app-shell img{-webkit-user-drag:none;user-drag:none}
+.app-shell button,.app-shell a,.app-shell label{-webkit-tap-highlight-color:transparent}
