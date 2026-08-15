@@ -1,0 +1,74 @@
+name: Integrate AEON Ayagawa Catalog
+
+on:
+  push:
+    branches:
+      - feat/aeon-catalog-integration
+    paths:
+      - .github/workflows/aeon-catalog-integrate.yml
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: aeon-ayagawa-app-integration
+  cancel-in-progress: true
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout integration branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Download successful AEON harvest artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p .tmp/aeon
+          gh run download 31870735513 -n aeon-ayagawa-catalog -D .tmp/aeon
+          test -f .tmp/aeon/products.json
+          test -f .tmp/aeon/meta.json
+          test -f .tmp/aeon/categories.json
+
+      - name: Build catalog and patch app integration
+        run: node tools/integration/apply-aeon-catalog-integration.mjs .tmp/aeon
+
+      - name: Remove one-shot integration helpers
+        run: |
+          rm -f .github/workflows/aeon-catalog-integrate.yml
+          rm -f tools/integration/apply-aeon-catalog-integration.mjs
+          rm -rf .tmp
+
+      - name: Validate generated catalog
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const manifest = JSON.parse(fs.readFileSync('catalog/aeon-ayagawa/manifest.json', 'utf8'));
+          if (manifest.count !== 37063) throw new Error(`Unexpected catalog count: ${manifest.count}`);
+          if (!Array.isArray(manifest.shards) || manifest.shards.length !== 32) throw new Error('Expected 32 catalog shards');
+          const total = manifest.shards.reduce((sum, shard) => sum + Number(shard.count || 0), 0);
+          if (total !== manifest.count) throw new Error(`Shard total mismatch: ${total}`);
+          console.log(`Validated ${manifest.count} products across ${manifest.shards.length} shards`);
+          NODE
+
+      - name: Run app tests
+        run: npm test
+
+      - name: Commit generated catalog integration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --stat
+          git commit -m "Integrate AEON Ayagawa catalog into app"
+          git push origin HEAD:feat/aeon-catalog-integration
