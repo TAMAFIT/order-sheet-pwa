@@ -6,6 +6,21 @@ const CANCEL_DISTANCE = 10;
 const INTERACTIVE = 'button,input,textarea,select,a,label,.review-editor';
 let setupDone = false;
 
+function installStyles() {
+  if (document.querySelector('#reviewReorderV17Styles')) return;
+  const style = document.createElement('style');
+  style.id = 'reviewReorderV17Styles';
+  style.textContent = `
+    .review-line{position:relative;-webkit-user-select:none;user-select:none}
+    .review-line.is-reorder-dragging{pointer-events:none;opacity:.72;transform:scale(.985);box-shadow:0 10px 28px rgba(31,65,42,.18);border-color:#2e6b45;background:#f1f8f3}
+    .review-line.reorder-target-before::before,.review-line.reorder-target-after::after{content:'';position:absolute;left:8px;right:8px;height:4px;border-radius:999px;background:#2e6b45;z-index:5}
+    .review-line.reorder-target-before::before{top:-5px}.review-line.reorder-target-after::after{bottom:-5px}
+    body.review-reorder-active{overscroll-behavior:contain}
+    body.review-reorder-active #reviewList{touch-action:none}
+  `;
+  document.head.append(style);
+}
+
 function clone(value) {
   if (typeof globalThis.structuredClone === 'function') return globalThis.structuredClone(value);
   return JSON.parse(JSON.stringify(value));
@@ -81,6 +96,7 @@ function applyDomMove(list, movingId, targetId, position, items) {
 export function setupReviewReorder(getItems) {
   if (setupDone || typeof document === 'undefined') return;
   setupDone = true;
+  installStyles();
 
   const list = document.querySelector('#reviewList');
   if (!list) return;
