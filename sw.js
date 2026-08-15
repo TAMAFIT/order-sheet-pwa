@@ -1,4 +1,4 @@
-const CACHE = 'order-sheet-pwa-v13';
+const CACHE = 'order-sheet-pwa-v14';
 const ASSETS = [
   './',
   './index.html',
@@ -7,6 +7,7 @@ const ASSETS = [
   './workflow-v11.css',
   './review-v2.css',
   './catalog-v13.css',
+  './capture-v14.css',
   './app.js',
   './catalog-core.js',
   './catalog-db.js',
@@ -14,6 +15,8 @@ const ASSETS = [
   './review-edit-core.js',
   './session-history-core.js',
   './image-orientation-core.js',
+  './capture-multishot-core.js',
+  './capture-ui.js',
   './force-update-core.js',
   './force-update.js',
   './chatgpt-flow.js',
