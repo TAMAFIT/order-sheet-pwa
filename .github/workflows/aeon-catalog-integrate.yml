@@ -44,10 +44,16 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
           p = Path('tools/integration/apply-aeon-catalog-integration.mjs')
           s = p.read_text(encoding='utf-8')
-          s = s.replace("candidates.map(candidate => `<button", "candidates.map(candidate => \\`<button")
-          s = s.replace("</button>`).join('')", "</button>\\`).join('')")
+          start = s.index('const catalogSearchFunctions = `')
+          end = s.index("app = insertBeforeOnce(app, 'function addProductManually() {'", start)
+          block = s[start:end]
+          block = block.replace("candidates.map(candidate => `<button", "candidates.map(candidate => \\`<button")
+          block = block.replace("</button>`).join('')", "</button>\\`).join('')")
+          block = re.sub(r'(?<!\\)\$\{', r'\\${', block)
+          s = s[:start] + block + s[end:]
           p.write_text(s, encoding='utf-8')
           PY
           node --check tools/integration/apply-aeon-catalog-integration.mjs
