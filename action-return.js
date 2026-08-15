@@ -5,6 +5,7 @@ const CONFIG_KEY = 'order-sheet-action-return-config-v1';
 const AWAITING_KEY = 'order-sheet-action-awaiting-v1';
 const LAST_IMPORTED_KEY = 'order-sheet-action-last-imported-v1';
 const LEGACY_CLIPBOARD_AWAITING_KEY = 'order-sheet-awaiting-chatgpt';
+const CLOUDFLARE_DEPLOY_URL = 'https://deploy.workers.cloudflare.com/?url=https://github.com/TAMAFIT/order-sheet-pwa/tree/main/cloudflare-action-api';
 
 const $ = selector => document.querySelector(selector);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -71,9 +72,10 @@ function injectStyles() {
     .action-scan-row code{max-width:68%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#315b43}
     .action-route-note{margin-top:12px;padding:12px 14px;border:1px solid #d8e7dd;border-radius:14px;background:#f7fbf8;font-size:13px;line-height:1.6;color:#355442}
     .action-route-note strong{display:block;color:#174d31;margin-bottom:3px}
-    .action-route-tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-    .action-route-tools button{flex:1 1 160px}
-    .action-config-status{margin-top:10px;font-size:12px;color:#68756d}
+    .action-route-tools,.action-setup-tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+    .action-route-tools button,.action-setup-tools>*{flex:1 1 160px}
+    .action-config-status{margin-top:10px;font-size:12px;color:#68756d;overflow-wrap:anywhere}
+    .action-deploy-link{text-decoration:none;display:flex;align-items:center;justify-content:center}
   `;
   document.head.appendChild(style);
 }
@@ -130,13 +132,19 @@ function injectSettings() {
   section.className = 'card';
   section.innerHTML = `
     <h2>Custom GPT Action返却</h2>
-    <p class="card-sub">ChatGPTの画像解析自体はそのまま使い、結果だけ外部APIへ保存してPWAがscan_idで取得します。APIキーはPWAへ入れません。</p>
-    <div class="security-note">POST側の秘密鍵はCustom GPT Actionとサーバー側だけに置きます。PWAは推測困難なscan_idを使ってGETします。</div>
-    <div class="field">
-      <label for="actionResultBaseUrl">Action結果APIのベースURL</label>
-      <input id="actionResultBaseUrl" type="url" inputmode="url" placeholder="https://your-worker.workers.dev">
+    <p class="card-sub">ChatGPTの画像解析自体はそのまま使い、結果だけCloudflareへ一時保存してPWAがscan_idで取得します。PWAへAPIキーは入れません。</p>
+    <div class="security-note">初回だけCloudflare Workerを作成します。以後は利用者のPCやこの開発チャットが起動していなくても動作します。</div>
+    <div class="action-setup-tools">
+      <a class="secondary-btn action-deploy-link" href="${CLOUDFLARE_DEPLOY_URL}" target="_blank" rel="noopener noreferrer">Cloudflareをセットアップ</a>
     </div>
-    <button id="saveActionResultSettingsBtn" class="primary-btn" type="button">Action返却設定を保存</button>
+    <div class="field">
+      <label for="actionResultBaseUrl">発行されたWorker URL</label>
+      <input id="actionResultBaseUrl" type="url" inputmode="url" placeholder="https://order-sheet-action-api.xxxxx.workers.dev">
+    </div>
+    <div class="action-setup-tools">
+      <button id="saveActionResultSettingsBtn" class="primary-btn" type="button">URLを保存</button>
+      <button id="testActionResultSettingsBtn" class="secondary-btn" type="button">接続テスト</button>
+    </div>
     <div id="actionConfigStatus" class="action-config-status"></div>
   `;
   backendCard.insertAdjacentElement('beforebegin', section);
@@ -146,11 +154,12 @@ function injectSettings() {
       const baseUrl = saveConfig($('#actionResultBaseUrl').value);
       refreshModeText();
       refreshConfigStatus();
-      setStatus(baseUrl ? 'ready' : 'manual', baseUrl ? 'Action返却を有効化しました。次の撮影からscan_idで結果を確認します' : 'Action結果API未設定。従来のコピー方式を使います');
+      setStatus(baseUrl ? 'ready' : 'manual', baseUrl ? 'Action返却URLを保存しました。接続テストで確認できます' : 'Action結果API未設定。従来のコピー方式を使います');
     } catch (error) {
       setStatus('manual', error.message || '設定を保存できませんでした');
     }
   });
+  $('#testActionResultSettingsBtn').addEventListener('click', testConnection);
   refreshConfigStatus();
 }
 
@@ -162,10 +171,38 @@ function refreshModeText() {
     : 'Action結果APIは未設定です。現在は従来の「JSONをコピー → PWAへ戻る」が動作します。';
 }
 
-function refreshConfigStatus() {
+function refreshConfigStatus(extra = '') {
   const el = $('#actionConfigStatus');
   if (!el) return;
-  el.textContent = isConfigured() ? `接続先: ${readConfig().baseUrl}` : '未設定';
+  const base = isConfigured() ? `接続先: ${readConfig().baseUrl}` : '未設定';
+  el.textContent = extra ? `${base} / ${extra}` : base;
+}
+
+async function testConnection() {
+  let baseUrl;
+  try {
+    baseUrl = saveConfig($('#actionResultBaseUrl')?.value || readConfig().baseUrl);
+  } catch (error) {
+    refreshConfigStatus(error.message || 'URLが不正です');
+    return false;
+  }
+  if (!baseUrl) {
+    refreshConfigStatus('Worker URLを入力してください');
+    return false;
+  }
+  refreshConfigStatus('接続確認中…');
+  try {
+    const response = await fetch(`${baseUrl}/health`, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload?.ok !== true) throw new Error(`HTTP ${response.status}`);
+    refreshModeText();
+    refreshConfigStatus('接続OK');
+    setStatus('ready', 'Cloudflare接続OK。Custom GPT Action設定後は、PWAへ戻るだけで結果を取得できます');
+    return true;
+  } catch (error) {
+    refreshConfigStatus(`接続NG: ${error.message || '応答なし'}`);
+    return false;
+  }
 }
 
 async function fetchActionResult(scanId) {
@@ -260,4 +297,4 @@ function setup() {
 
 if (typeof document !== 'undefined') setup();
 
-export { fetchActionResult, pollBurst, readConfig };
+export { fetchActionResult, pollBurst, readConfig, testConnection };
