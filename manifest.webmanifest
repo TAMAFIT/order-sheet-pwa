@@ -1,0 +1,9 @@
+{
+  "name": "手書き注文 集計アシスタント",
+  "short_name": "手書き注文 集計アシスタ",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff"
+}
