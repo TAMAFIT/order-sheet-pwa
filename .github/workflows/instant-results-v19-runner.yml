@@ -24,6 +24,7 @@ jobs:
         run: |
           python -c "from pathlib import Path; s=Path('.github/workflows/instant-results-v19.yml').read_text(); a=s.index(\"          python - <<'PY'\\n\")+len(\"          python - <<'PY'\\n\"); b=s.index(\"\\n          PY\\n\",a); body=s[a:b]; Path('/tmp/integrate-v19.py').write_text('\\n'.join(x[10:] if x.startswith('          ') else x for x in body.splitlines())+'\\n')"
           sed -i "/quantity edit clears warning/d" /tmp/integrate-v19.py
+          python -c "from pathlib import Path; p=Path('/tmp/integrate-v19.py'); s=p.read_text(); s=s.replace(\"(?=\\\\nfunction {re.escape(next_name)}\\\\()\", \"(?=\\\\n(?:async )?function {re.escape(next_name)}\\\\()\"); p.write_text(s)"
       - name: Apply integration
         run: python /tmp/integrate-v19.py
       - name: Validate
